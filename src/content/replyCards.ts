@@ -1,0 +1,118 @@
+import type { ReplyCard } from "../game/types";
+
+export const replyCards: ReplyCard[] = [
+  {
+    id: "soft-apology",
+    title: "先安抚并承认体验不好",
+    shortLabel: "安抚",
+    description: "降低怒气，给后续查证争取空间。",
+    tags: ["apology", "empathy"],
+    effects: {
+      satisfaction: 6,
+      anger: -12,
+      timeLeft: -5,
+    },
+  },
+  {
+    id: "check-order",
+    title: "查询订单与处理记录",
+    shortLabel: "查单",
+    description: "适合事实不清的诉求，耗时但稳。",
+    tags: ["investigate"],
+    effects: {
+      satisfaction: 4,
+      anger: -6,
+      timeLeft: -9,
+    },
+  },
+  {
+    id: "quote-policy",
+    title: "引用售后政策说明边界",
+    shortLabel: "政策",
+    description: "提升合规，适合较真客户。",
+    tags: ["policy"],
+    effects: {
+      satisfaction: 1,
+      anger: -2,
+      complianceRisk: -12,
+      timeLeft: -7,
+    },
+  },
+  {
+    id: "refund-review",
+    title: "发起退款资格复核",
+    shortLabel: "复核退款",
+    description: "对退款类问题有效，但会消耗处理时间。",
+    tags: ["refund_check", "investigate"],
+    effects: {
+      satisfaction: 9,
+      anger: -9,
+      complianceRisk: -4,
+      timeLeft: -12,
+    },
+  },
+  {
+    id: "logistics-trace",
+    title: "同步物流追踪并承诺回访",
+    shortLabel: "追物流",
+    description: "处理物流失踪和延误时很可靠。",
+    tags: ["logistics", "investigate"],
+    effects: {
+      satisfaction: 10,
+      anger: -8,
+      timeLeft: -11,
+    },
+  },
+  {
+    id: "small-coupon",
+    title: "提供小额优惠券补偿",
+    shortLabel: "补偿",
+    description: "快速提高满意度，但会增加公司成本和滥用风险。",
+    tags: ["compensation"],
+    effects: {
+      satisfaction: 15,
+      anger: -10,
+      companyCost: 18,
+      complianceRisk: 6,
+      timeLeft: -4,
+    },
+  },
+  {
+    id: "firm-reject",
+    title: "明确拒绝超出政策的要求",
+    shortLabel: "拒绝",
+    description: "保护合规与成本，但容易激怒客户。",
+    tags: ["reject", "policy"],
+    effects: {
+      satisfaction: -12,
+      anger: 14,
+      complianceRisk: -10,
+      timeLeft: -4,
+    },
+  },
+  {
+    id: "template-reply",
+    title: "发送标准模板话术",
+    shortLabel: "模板",
+    description: "省时间，但对高怒气客户很危险。",
+    tags: ["template"],
+    effects: {
+      satisfaction: -2,
+      anger: 5,
+      timeLeft: -2,
+    },
+  },
+  {
+    id: "call-supervisor",
+    title: "申请主管协助判断",
+    shortLabel: "主管",
+    description: "稳住局面，但耗时明显。",
+    tags: ["supervisor", "policy"],
+    effects: {
+      satisfaction: 6,
+      anger: -10,
+      complianceRisk: -16,
+      timeLeft: -18,
+    },
+  },
+];
