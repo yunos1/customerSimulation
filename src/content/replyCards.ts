@@ -115,4 +115,17 @@ export const replyCards: ReplyCard[] = [
       timeLeft: -18,
     },
   },
+  {
+    id: "push-back",
+    title: "直接怼回去：爱咋咋地，大不了不干了",
+    shortLabel: "怼回去",
+    description: "高风险游戏选项：爽，但会触发投诉、扣绩效和特殊结局。",
+    tags: ["pushback"],
+    effects: {
+      satisfaction: -45,
+      anger: 60,
+      complianceRisk: 45,
+      timeLeft: -3,
+    },
+  },
 ];

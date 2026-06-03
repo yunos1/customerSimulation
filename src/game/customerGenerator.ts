@@ -1,0 +1,653 @@
+import type { Customer, CustomerRound, CustomerType, Metrics, ToneTag } from "./types";
+
+type RoundTemplate = {
+  id: string;
+  prompts: string[];
+  preferredTags: ToneTag[];
+  riskyTags: ToneTag[];
+  successLines: string[];
+  neutralLines: string[];
+  failureLines: string[];
+  resolveAfter?: boolean;
+};
+
+type ScenarioTemplate = {
+  id: string;
+  type: CustomerType;
+  names: string[];
+  handles: string[];
+  issues: string[];
+  openings: string[];
+  profileNotes: string[];
+  initialMetrics: Pick<Metrics, "satisfaction" | "anger">;
+  patience: number;
+  rounds: RoundTemplate[];
+};
+
+const shiftCustomerCount = 6;
+
+const scenarios: ScenarioTemplate[] = [
+  {
+    id: "noisy-device-refund",
+    type: "angry_refund",
+    names: ["王先生", "陈先生", "许女士", "周女士", "刘先生"],
+    handles: ["买到冒火的老王", "耳机受害者", "已经录好证据的人", "退货按钮快按烂了"],
+    issues: [
+      "耳机用了两天出现杂音，要求立刻退款。",
+      "键盘刚到货就有几个键失灵，客户要求退货退款。",
+      "吹风机第一次用就异响发烫，客户担心质量问题。",
+      "蓝牙音箱播放十分钟就断连，客户已经拍了视频。",
+    ],
+    openings: [
+      "你们这东西才用两天就出问题，我现在就要退款，别跟我绕。",
+      "我视频都拍好了，这个质量你们自己看着办。",
+      "我不是来听流程的，我买的是能用的东西，不是情绪训练器。",
+      "东西坏了还让我等，我现在火气已经上来了。",
+    ],
+    profileNotes: ["高怒气", "诉求明确", "对模板话术敏感", "需要先接住情绪再处理证据"],
+    initialMetrics: {
+      satisfaction: 34,
+      anger: 74,
+    },
+    patience: 55,
+    rounds: [
+      {
+        id: "refund-proof",
+        prompts: [
+          "我已经拍视频了，你们是不是又要让我等三天？",
+          "我把问题录得很清楚了，你现在能不能直接看证据？",
+          "别让我重新讲一遍，视频和订单都在这里。",
+          "你们不会又让我先寄回去，然后等一个没准信的审核吧？",
+        ],
+        preferredTags: ["apology", "refund_check", "investigate"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，至少你听懂我在气什么了。那你现在查。",
+          "可以，你先看证据，我等你给结论。",
+          "这才像处理问题，别让我再重复材料。",
+        ],
+        neutralLines: [
+          "可以查，但你别又让我重复十遍。",
+          "你先核实，我看你能不能给点具体的。",
+          "行吧，先查，但别查完又让我继续等。",
+        ],
+        failureLines: [
+          "你这话术我都能背了，我要投诉。",
+          "如果只是复制粘贴，那我直接找平台。",
+          "你这回答完全没接住我的问题。",
+        ],
+      },
+      {
+        id: "refund-decision",
+        prompts: [
+          "订单号我发你了。你给我一个明确处理，不要只说抱歉。",
+          "所以质量问题到底能不能走退款复核？",
+          "我现在要的是处理结果，不是情绪按摩。",
+          "这单今天能不能先进入售后复核？",
+        ],
+        preferredTags: ["refund_check", "policy"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "如果真能复核退款资格，那我等你这一步。",
+          "行，你按质量问题复核，我先配合。",
+          "可以，至少这次有明确方向了。",
+        ],
+        neutralLines: [
+          "规则我可以看，但别拿规则挡问题。",
+          "你把条件说清楚，我再判断能不能接受。",
+          "我先听着，但你别又拐回模板。",
+        ],
+        failureLines: [
+          "给券有什么用？坏了就是坏了。",
+          "你这是想把质量问题当普通体验问题糊弄过去？",
+          "这处理我不接受，我要升级。",
+        ],
+      },
+      {
+        id: "refund-final",
+        prompts: [
+          "所以今天到底能不能给方案？",
+          "你现在给我一句准话，别让我一直等。",
+          "我最后问一次，能不能把这单往上复核？",
+          "再没有明确方案，我就直接投诉了。",
+        ],
+        preferredTags: ["refund_check", "supervisor", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "好，能升级复核就行，我等结果。",
+          "行，你给了明确路径，我暂时先等回访。",
+          "可以，我接受先按这个节点推进。",
+        ],
+        neutralLines: [
+          "我先接受这个说法，但你们得有回访。",
+          "行吧，但你要把反馈时间说清楚。",
+          "我暂时不投诉，先看你们后续怎么做。",
+        ],
+        failureLines: [
+          "你们就是拖，我现在去平台投诉。",
+          "行，那我不跟你绕了，直接投诉。",
+          "这个结果我完全不接受。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "lost-package",
+    type: "lost_package",
+    names: ["林女士", "吴先生", "何女士", "唐同学", "郑先生"],
+    handles: ["一直等快递的人", "物流页刷新大师", "包裹失踪案报案人", "等到没脾气又有脾气"],
+    issues: [
+      "包裹 4 天没有物流更新，需要确认去向。",
+      "订单显示已到中转站后一直不动，客户要求追踪。",
+      "快递显示已签收但本人没有收到。",
+      "礼物卡在路上，客户担心错过使用时间。",
+    ],
+    openings: [
+      "我的包裹已经四天没动了，送给空气了吗？",
+      "物流页面卡住不动，你们能不能帮我查一下真实情况？",
+      "我每天刷十几次物流，再刷下去我都要背出单号了。",
+      "东西到底在哪里？我现在只想要一个准信。",
+    ],
+    profileNotes: ["需要事实反馈", "可以接受等待", "讨厌空泛安慰", "重视回访时间"],
+    initialMetrics: {
+      satisfaction: 48,
+      anger: 58,
+    },
+    patience: 70,
+    rounds: [
+      {
+        id: "package-location",
+        prompts: [
+          "物流页面一直停在中转站，你能不能别只说让我耐心等待？",
+          "你能不能查到它到底卡在哪，不要只读物流页面给我听。",
+          "如果只是让我继续等，那我找你们有什么用？",
+          "我需要你们联系快递确认，不是让我刷新页面。",
+        ],
+        preferredTags: ["logistics", "investigate"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "终于有人愿意查这个中转站了。",
+          "可以，你先查真实节点，我等你回。",
+          "这比让我干等靠谱多了。",
+        ],
+        neutralLines: [
+          "你先查，我看你能不能说点具体的。",
+          "行，先核实，但别给我空话。",
+          "我可以等一会儿，但要有结果。",
+        ],
+        failureLines: [
+          "又是复制粘贴，我自己不会看页面吗？",
+          "你这回答和物流页一样没用。",
+          "别再让我耐心等待了，我耐心快没了。",
+        ],
+      },
+      {
+        id: "package-policy",
+        prompts: [
+          "如果快递丢了，你们是补发还是退款？",
+          "如果明天还没动静，后面到底按什么规则处理？",
+          "你告诉我一个节点，什么时候算异常件？",
+          "快递说让我找商家，你们这边到底能不能建工单？",
+        ],
+        preferredTags: ["policy", "logistics"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "有 96 小时这个节点就清楚多了。",
+          "行，你把异常后的处理说清楚，我就知道该等到哪。",
+          "可以，至少补发和退款边界明确了。",
+        ],
+        neutralLines: [
+          "那你至少给我一个处理时间。",
+          "我先听这个节点，但你要继续追踪。",
+          "行吧，你把工单建起来我还能等。",
+        ],
+        failureLines: [
+          "别急着给券，我要的是东西在哪里。",
+          "你别用补偿把丢件问题盖过去。",
+          "这个回答还是没说包裹怎么找。",
+        ],
+      },
+      {
+        id: "package-ticket",
+        prompts: [
+          "那今天你能帮我建追踪工单吗？",
+          "你能不能现在就发起快递核查？",
+          "我不想明天再从头解释，你这边能不能留下记录？",
+          "给我一个工单或回访时间，可以吗？",
+        ],
+        preferredTags: ["logistics", "investigate"],
+        riskyTags: ["reject", "template"],
+        successLines: [
+          "可以，你建工单并回访，我就再等一天。",
+          "行，有工单就比空等强。",
+          "那我等你们回访，别让我再追着问。",
+        ],
+        neutralLines: [
+          "行吧，我希望这次不是自动回复。",
+          "你先建，我明天看有没有进展。",
+          "可以，但时间别说得太虚。",
+        ],
+        failureLines: [
+          "连工单都不能建？那我只能申请退款了。",
+          "那我不等了，直接走投诉吧。",
+          "这都处理不了，我真的服了。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "coupon-hunter",
+    type: "coupon_hunter",
+    names: ["赵同学", "孙女士", "小沈", "马先生", "邱女士"],
+    handles: ["优惠券研究员", "补偿方案收藏家", "别人有我也要", "羊毛边界测试员"],
+    issues: [
+      "没有明显损失，但持续要求补偿。",
+      "配送晚到半天，客户要求比照朋友案例给券。",
+      "活动价没赶上，客户要求补差价。",
+      "客服前后口径不一致，客户借机要求补偿。",
+    ],
+    openings: [
+      "我朋友上次晚到一天都有 50 块券，我这次也得有吧？",
+      "你先别说规定，我就问这事有没有补偿。",
+      "同样都是客户，别人有方案，我这里不能没有吧？",
+      "我也不是不讲理，但你们总得表示一下。",
+    ],
+    profileNotes: ["补偿敏感", "会比较他人案例", "容易推高公司成本", "需要清晰边界"],
+    initialMetrics: {
+      satisfaction: 52,
+      anger: 42,
+    },
+    patience: 80,
+    rounds: [
+      {
+        id: "coupon-ask",
+        prompts: [
+          "你不用跟我说规定，我就问有没有补偿。",
+          "我这个情况不算特殊吗？多少也该有点表示吧。",
+          "别的用户能给，我为什么不能给？",
+          "你先说能给什么，不能给再讲理由。",
+        ],
+        preferredTags: ["policy", "empathy"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "你先说清楚边界也行，我听听。",
+          "行，你别乱承诺，先把规则说清楚。",
+          "可以，我先看你怎么解释这个差异。",
+        ],
+        neutralLines: [
+          "那你看看我这个情况怎么处理。",
+          "我先听着，但别拿模板糊弄我。",
+          "行吧，你先核实。",
+        ],
+        failureLines: [
+          "才这点？那你再申请一下更高的。",
+          "既然你说能给，那说明还有空间。",
+          "你这个方案也太随口了吧。",
+        ],
+      },
+      {
+        id: "coupon-pressure",
+        prompts: [
+          "我这个订单金额也不低，你们总得表示一下吧？",
+          "如果不能给，你把不能给的依据说清楚。",
+          "你能不能帮我申请一下更高档位？",
+          "我不接受一句没有，你至少得解释为什么。",
+        ],
+        preferredTags: ["policy", "investigate"],
+        riskyTags: ["compensation"],
+        successLines: [
+          "如果按规则不能给，那你把理由写清楚。",
+          "行，你愿意核实规则，我先不逼你。",
+          "可以，你把这单和活动条件对上再说。",
+        ],
+        neutralLines: [
+          "我可以接受核实，但别糊弄我。",
+          "那你查一下，别直接一句不行。",
+          "行，我看你后面怎么反馈。",
+        ],
+        failureLines: [
+          "既然能给，那说明还能再给。",
+          "你都开口补偿了，那我肯定要问上限。",
+          "这个补偿太低了，你再申请一下。",
+        ],
+      },
+      {
+        id: "coupon-final",
+        prompts: [
+          "最后确认一下，你能给我的最大方案是什么？",
+          "你给我一个最终说法，我看要不要接受。",
+          "所以你们最高权限就是这样吗？",
+          "如果没有补偿，那你把规则依据发我。",
+        ],
+        preferredTags: ["policy", "supervisor", "reject"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "行，至少你没乱承诺，我回头自己看规则。",
+          "可以，你把边界讲清楚，我先接受。",
+          "那就按这个最终说法来吧。",
+        ],
+        neutralLines: [
+          "那我先这样吧，但体验一般。",
+          "行吧，我不继续纠缠了。",
+          "我接受这个解释，但下次不一定再买。",
+        ],
+        failureLines: [
+          "你这个补偿太随意了，我要找更高级的人。",
+          "越说越像还有空间，我肯定不能就这么算了。",
+          "你这最终方案我不认可。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "policy-checker",
+    type: "policy_checker",
+    names: ["顾女士", "罗先生", "曹女士", "韩先生", "叶同学"],
+    handles: ["条款逐字阅读者", "政策边界审计员", "截图留证型客户", "规则必须说清楚"],
+    issues: [
+      "客户质疑 7 天无理由规则适用范围。",
+      "客户要求解释价保规则和活动叠加限制。",
+      "客户担心售后记录影响后续保修，需要明确政策。",
+      "客户要求客服给出可留证的规则依据。",
+    ],
+    openings: [
+      "你别只说不支持，把依据和适用条件说清楚。",
+      "我看了你们页面，但写得很含糊，你给我解释一下。",
+      "这事我不急着吵，我要一个能留下来的明确说法。",
+      "你说按规则，那规则是哪一条？怎么适用到我这单？",
+    ],
+    profileNotes: ["较真但可沟通", "重视规则依据", "不喜欢模糊承诺", "合规风险较高"],
+    initialMetrics: {
+      satisfaction: 46,
+      anger: 48,
+    },
+    patience: 72,
+    rounds: [
+      {
+        id: "policy-source",
+        prompts: [
+          "你说不支持，那具体是哪条规则不支持？",
+          "这个规则是所有商品都适用，还是分品类？",
+          "你能不能别只说系统显示，讲一下判断依据？",
+          "我需要一个能截图留存的解释。",
+        ],
+        preferredTags: ["policy", "investigate"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "这条规则说得比较清楚，那你继续讲适用条件。",
+          "可以，你把依据讲出来了，我能接着听。",
+          "行，至少不是一句系统不支持。",
+        ],
+        neutralLines: [
+          "我先听着，但你还没完全说清楚。",
+          "这个解释有一点用，再具体一点。",
+          "你继续，把边界补完整。",
+        ],
+        failureLines: [
+          "你这还是模板，没有回答规则来源。",
+          "如果说不清楚，我就只能理解为你们随口拒绝。",
+          "这解释留不了证，我不接受。",
+        ],
+      },
+      {
+        id: "policy-apply",
+        prompts: [
+          "那你把这个规则套到我的订单上说一遍。",
+          "我的商品到底命中了哪个例外条件？",
+          "如果有人工复核入口，你现在能不能提交？",
+          "这个结论是你判断的，还是系统自动判断的？",
+        ],
+        preferredTags: ["policy", "investigate", "supervisor"],
+        riskyTags: ["template"],
+        successLines: [
+          "可以，你把适用条件讲明白了。",
+          "行，这样我至少知道为什么是这个结论。",
+          "如果能提交复核，那就按你说的走。",
+        ],
+        neutralLines: [
+          "我还需要你把例外条件再说清楚。",
+          "可以，但你最好给我一个文字记录。",
+          "我先接受核实，不接受糊弄。",
+        ],
+        failureLines: [
+          "你还是没有把规则套到我的订单上。",
+          "一句系统判断解决不了问题。",
+          "你这个说法前后不够严谨。",
+        ],
+      },
+      {
+        id: "policy-final",
+        prompts: [
+          "最后你给我一个明确结论，我要留记录。",
+          "这件事后续如果再争议，我能引用你这段说法吗？",
+          "你能不能把最终处理路径说完整？",
+          "如果你不确定，就升级给能确认的人。",
+        ],
+        preferredTags: ["policy", "supervisor", "reject"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "可以，这个结论我能接受，至少边界清楚。",
+          "行，你把路径说明白了，我按这个处理。",
+          "那我保存这段记录，先不继续追问。",
+        ],
+        neutralLines: [
+          "我先接受这个说法，但希望后续别变。",
+          "可以，但你们口径最好保持一致。",
+          "行吧，我先按这个结论走。",
+        ],
+        failureLines: [
+          "你越说越不清楚，我要主管介入。",
+          "这个结论不能留证，我不接受。",
+          "我会把前后口径都截图反馈。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "passive-aggressive",
+    type: "passive_aggressive",
+    names: ["梁女士", "谢先生", "姜女士", "小严", "任先生"],
+    handles: ["阴阳怪气但有理", "礼貌到发冷", "微笑投诉预备役", "客服耐心测试器"],
+    issues: [
+      "客户多次咨询无人跟进，语气开始阴阳怪气。",
+      "客户收到错误颜色商品，对售后响应很失望。",
+      "客户被不同客服反复转接，要求有人负责。",
+      "客户觉得自己被敷衍，希望得到正式处理。",
+    ],
+    openings: [
+      "好的呢，我已经第三次来问了，希望这次不是继续踢皮球。",
+      "你们效率挺稳定的，稳定地没人处理。",
+      "我语气还算客气吧，毕竟我已经等到有点想笑了。",
+      "如果今天能有人真正负责，那真是意外之喜。",
+    ],
+    profileNotes: ["表面平静", "容易被模板激怒", "需要被认真对待", "适合先共情再查证"],
+    initialMetrics: {
+      satisfaction: 38,
+      anger: 62,
+    },
+    patience: 65,
+    rounds: [
+      {
+        id: "passive-history",
+        prompts: [
+          "前面两个客服都说会反馈，然后就没有然后了。",
+          "我已经把情况发过很多遍了，你不会也让我重发吧？",
+          "你先别急着抱歉，先告诉我你能不能接住这件事。",
+          "如果这次还是登记一下，那我真的会笑出声。",
+        ],
+        preferredTags: ["empathy", "investigate", "apology"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，你至少知道我为什么不爽了。",
+          "可以，你先把前面的记录接上。",
+          "你愿意看历史记录，我就不用第四次复述了。",
+        ],
+        neutralLines: [
+          "那你先查，但别查完又消失。",
+          "行吧，我看你这次能不能跟进。",
+          "我先配合一次，希望不是循环播放。",
+        ],
+        failureLines: [
+          "果然，又是熟悉的味道。",
+          "你这句我前天刚听过，效果为零。",
+          "如果你也处理不了，那我直接投诉省时间。",
+        ],
+      },
+      {
+        id: "passive-owner",
+        prompts: [
+          "所以这次到底谁负责？我还能不能等到回访？",
+          "你能不能给我一个明确时间，而不是尽快？",
+          "这个问题是继续转交，还是你这边能推进？",
+          "我不想再被转来转去了，你给个准话。",
+        ],
+        preferredTags: ["investigate", "supervisor", "empathy"],
+        riskyTags: ["template"],
+        successLines: [
+          "有负责人和时间就好，终于像个正常流程了。",
+          "可以，你把回访时间说出来，我就先等。",
+          "行，那这次我记你的说法。",
+        ],
+        neutralLines: [
+          "我先听这个时间，但别再失联。",
+          "可以，不过你要真的跟进。",
+          "行吧，希望不是新的等待开始。",
+        ],
+        failureLines: [
+          "尽快就是没有时间，对吧？",
+          "你这回答太熟悉了，熟到我想截图。",
+          "那我还是找平台比较快。",
+        ],
+      },
+      {
+        id: "passive-final",
+        prompts: [
+          "最后确认，今天能不能有实际动作？",
+          "你把结果和回访方式说清楚，我就不继续追问。",
+          "如果还不能处理，我就走投诉了，可以吧？",
+          "给我一个能执行的方案，不要情绪价值。",
+        ],
+        preferredTags: ["supervisor", "investigate", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，这次至少有人把事情往前推了。",
+          "可以，我等你们按这个时间回访。",
+          "那就按这个方案，我先不投诉。",
+        ],
+        neutralLines: [
+          "我先接受，但你们别再变卦。",
+          "可以，我再给一次机会。",
+          "行吧，希望这是最后一次解释。",
+        ],
+        failureLines: [
+          "那就这样吧，我去投诉，省得互相折磨。",
+          "你们真的很会把人逼到投诉按钮那里。",
+          "我已经没有继续沟通的兴趣了。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+];
+
+export function buildRandomizedCustomers(baseCustomers: Customer[], seed: number) {
+  const rng = createRng(seed);
+  const selectedScenarios = buildShiftScenarios(rng);
+  const generatedCustomers = selectedScenarios.map((scenario, index) =>
+    buildCustomer(scenario, rng, seed, index),
+  );
+
+  return generatedCustomers.length > 0 ? generatedCustomers : baseCustomers;
+}
+
+function buildShiftScenarios(rng: () => number) {
+  const selectedScenarios = shuffle(scenarios, rng).slice(0, shiftCustomerCount);
+
+  while (selectedScenarios.length < shiftCustomerCount) {
+    selectedScenarios.push(pick(scenarios, rng));
+  }
+
+  return selectedScenarios;
+}
+
+function buildCustomer(
+  scenario: ScenarioTemplate,
+  rng: () => number,
+  seed: number,
+  index: number,
+): Customer {
+  const name = pick(scenario.names, rng);
+  const issue = pick(scenario.issues, rng);
+  const idSeed = Math.abs(Math.floor((seed + index + 1) * 9973 * rng()));
+  const rounds = scenario.rounds.map((round, roundIndex): CustomerRound => ({
+    id: `${scenario.id}-r${roundIndex + 1}-${idSeed}`,
+    prompt: pick(round.prompts, rng),
+    preferredTags: round.preferredTags,
+    riskyTags: round.riskyTags,
+    successLine: pick(round.successLines, rng),
+    neutralLine: pick(round.neutralLines, rng),
+    failureLine: pick(round.failureLines, rng),
+    resolveAfter: round.resolveAfter,
+  }));
+
+  return {
+    id: `${scenario.id}-${idSeed}-${index}`,
+    name,
+    handle: pick(scenario.handles, rng),
+    type: scenario.type,
+    issue,
+    opening: pick(scenario.openings, rng),
+    initialMetrics: {
+      satisfaction: clampMetric(scenario.initialMetrics.satisfaction + randomInt(rng, -8, 8)),
+      anger: clampMetric(scenario.initialMetrics.anger + randomInt(rng, -8, 8)),
+    },
+    patience: clampMetric(scenario.patience + randomInt(rng, -10, 10)),
+    profileNotes: sample(scenario.profileNotes, 3, rng),
+    rounds,
+  };
+}
+
+function pick<T>(items: T[], rng: () => number) {
+  return items[Math.floor(rng() * items.length)];
+}
+
+function sample<T>(items: T[], count: number, rng: () => number) {
+  return shuffle(items, rng).slice(0, Math.min(count, items.length));
+}
+
+function shuffle<T>(items: T[], rng: () => number) {
+  const result = [...items];
+
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(rng() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+
+  return result;
+}
+
+function randomInt(rng: () => number, min: number, max: number) {
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+function clampMetric(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function createRng(seed: number) {
+  let state = Math.abs(Math.floor(seed)) % 2147483647;
+
+  if (state === 0) {
+    state = 1;
+  }
+
+  return () => {
+    state = (state * 48271) % 2147483647;
+
+    return state / 2147483647;
+  };
+}

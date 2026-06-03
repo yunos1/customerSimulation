@@ -92,6 +92,7 @@ export function createOutcome(customer: Customer, metrics: Metrics): CustomerOut
 
 export function buildDaySummary(level: LevelConfig, metrics: Metrics, outcomes: CustomerOutcome[]): DaySummary {
   const complaints = outcomes.filter((outcome) => outcome.status !== "resolved").length;
+  const rageQuits = outcomes.filter((outcome) => outcome.status === "rage_quit").length;
   const avgSatisfaction =
     outcomes.reduce((total, outcome) => total + outcome.satisfaction, 0) / Math.max(outcomes.length, 1);
 
@@ -102,7 +103,8 @@ export function buildDaySummary(level: LevelConfig, metrics: Metrics, outcomes: 
     metrics.complianceRisk * 0.32 -
     complaints * 12;
 
-  const grade = score >= 72 ? "S" : score >= 58 ? "A" : score >= 42 ? "B" : score >= 26 ? "C" : "D";
+  const grade =
+    rageQuits > 0 ? "D" : score >= 72 ? "S" : score >= 58 ? "A" : score >= 42 ? "B" : score >= 26 ? "C" : "D";
 
   const comments: Record<DaySummary["grade"], string> = {
     S: "你今天像把灭火器和合同条款装进了同一个脑子里。",
@@ -119,6 +121,16 @@ export function buildDaySummary(level: LevelConfig, metrics: Metrics, outcomes: 
     C: "被主管约谈",
     D: "今日工位不保",
   };
+
+  if (rageQuits > 0) {
+    return {
+      grade,
+      title: "大不了不干了",
+      supervisorComment: "你确实没有再受气，但主管也确实在打印离职交接单。游戏可以重开，现实别这么玩。",
+      totals: metrics,
+      outcomes,
+    };
+  }
 
   return {
     grade,
@@ -174,4 +186,11 @@ function getCustomerTypeModifier(type: Customer["type"], tags: ToneTag[]) {
         reactionBias: has("empathy") ? 1 : 0,
       };
   }
+
+  return {
+    satisfaction: 0,
+    anger: 0,
+    complianceRisk: 0,
+    reactionBias: 0,
+  };
 }

@@ -5,10 +5,12 @@ interface LayoutProps {
   chat: ReactNode;
   status: ReactNode;
   knowledge: ReactNode;
+  achievements: ReactNode;
   replies: ReactNode;
+  alerts: ReactNode;
 }
 
-export function Layout({ metrics, chat, status, knowledge, replies }: LayoutProps) {
+export function Layout({ metrics, chat, status, knowledge, achievements, replies, alerts }: LayoutProps) {
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -25,11 +27,13 @@ export function Layout({ metrics, chat, status, knowledge, replies }: LayoutProp
         <div className="left-column">{chat}</div>
         <aside className="right-column">
           {status}
+          {achievements}
           {knowledge}
         </aside>
       </section>
 
       <section className="reply-dock">{replies}</section>
+      {alerts}
     </main>
   );
 }

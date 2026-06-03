@@ -4,18 +4,6 @@ export function getActiveRound(customer: Customer, roundIndex: number): Customer
   return customer.rounds[Math.min(roundIndex, customer.rounds.length - 1)];
 }
 
-export function getReactionLine(round: CustomerRound, reactionKind: "success" | "neutral" | "failure") {
-  if (reactionKind === "success") {
-    return round.successLine;
-  }
-
-  if (reactionKind === "failure") {
-    return round.failureLine;
-  }
-
-  return round.neutralLine;
-}
-
 export function shouldResolveCustomer(
   customer: Customer,
   round: CustomerRound,

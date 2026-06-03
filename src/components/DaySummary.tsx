@@ -68,5 +68,9 @@ function getOutcomeLabel(status: DaySummaryType["outcomes"][number]["status"]) {
     return "主管介入";
   }
 
+  if (status === "rage_quit") {
+    return "硬刚离席";
+  }
+
   return "投诉";
 }

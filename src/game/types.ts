@@ -15,7 +15,8 @@ export type ToneTag =
   | "supervisor"
   | "template"
   | "empathy"
-  | "investigate";
+  | "investigate"
+  | "pushback";
 
 export type GamePhase =
   | "intro"
@@ -105,10 +106,57 @@ export interface ChatMessage {
 export interface CustomerOutcome {
   customerId: string;
   customerName: string;
-  status: "resolved" | "complaint" | "compliance_escalation";
+  status: "resolved" | "complaint" | "compliance_escalation" | "rage_quit";
   satisfaction: number;
   anger: number;
   notes: string[];
+}
+
+export type AchievementId =
+  | "first-save"
+  | "perfect-shift"
+  | "cool-headed"
+  | "policy-shield"
+  | "budget-keeper"
+  | "speed-responder"
+  | "multi-tasker"
+  | "human-touch"
+  | "no-timeout"
+  | "comeback"
+  | "rage-quit";
+
+export interface Achievement {
+  id: AchievementId;
+  title: string;
+  description: string;
+  category: "服务" | "效率" | "合规" | "经营" | "技巧";
+}
+
+export type AchievementStats = {
+  resolvedCount: number;
+  complaintCount: number;
+  timeoutCount: number;
+  maxConcurrentSessions: number;
+  freeReplyCount: number;
+  fastestReplySeconds: number;
+  savedAngryCustomerCount: number;
+  recoveredLowSatisfactionCount: number;
+  rageQuitCount: number;
+};
+
+export type CustomerSessionStatus = "active" | "resolved" | "failed";
+
+export interface CustomerSession {
+  id: string;
+  customer: Customer;
+  activeRoundIndex: number;
+  metrics: Pick<Metrics, "satisfaction" | "anger">;
+  messages: ChatMessage[];
+  status: CustomerSessionStatus;
+  elapsedSeconds: number;
+  timeoutCounted: boolean;
+  timeoutAlertDismissed: boolean;
+  outcome?: CustomerOutcome;
 }
 
 export interface DaySummary {
@@ -122,17 +170,23 @@ export interface DaySummary {
 export interface GameState {
   level: LevelConfig;
   phase: GamePhase;
-  activeCustomerIndex: number;
-  activeRoundIndex: number;
   metrics: Metrics;
-  messages: ChatMessage[];
+  sessions: CustomerSession[];
+  activeSessionId?: string;
+  connectedCustomerIds: string[];
+  shiftMessages: ChatMessage[];
+  nextArrivalIn: number;
   outcomes: CustomerOutcome[];
+  achievements: AchievementId[];
+  achievementStats: AchievementStats;
   summary?: DaySummary;
-  currentCustomerOutcome?: CustomerOutcome;
 }
 
 export type GameAction =
-  | { type: "START_DAY" }
+  | { type: "START_DAY"; seed: number }
+  | { type: "TICK"; seed: number }
+  | { type: "SELECT_SESSION"; sessionId: string }
+  | { type: "OPEN_TIMEOUT_ALERT"; sessionId: string }
   | { type: "CHOOSE_REPLY"; cardId: string }
-  | { type: "NEXT_CUSTOMER" }
-  | { type: "RESTART_DAY" };
+  | { type: "SUBMIT_FREE_REPLY"; text: string }
+  | { type: "RESTART_DAY"; seed: number };
