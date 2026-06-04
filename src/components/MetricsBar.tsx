@@ -89,12 +89,6 @@ function getPhaseLabel(phase: GamePhase) {
       return "等待上线";
     case "player_reply":
       return "选择回复";
-    case "customer_reaction":
-      return "客户反馈";
-    case "customer_resolved":
-      return "会话完成";
-    case "customer_failed":
-      return "会话异常";
     case "summary":
       return "今日结算";
   }

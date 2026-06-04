@@ -3,7 +3,6 @@ import type {
   CustomerOutcome,
   CustomerRound,
   DaySummary,
-  LevelConfig,
   MetricDelta,
   Metrics,
   ReplyCard,
@@ -27,6 +26,18 @@ export function applyDelta(metrics: Metrics, delta: MetricDelta): Metrics {
   return {
     satisfaction: clampMetric("satisfaction", metrics.satisfaction + (delta.satisfaction ?? 0)),
     anger: clampMetric("anger", metrics.anger + (delta.anger ?? 0)),
+    companyCost: clampMetric("companyCost", metrics.companyCost + (delta.companyCost ?? 0)),
+    complianceRisk: clampMetric(
+      "complianceRisk",
+      metrics.complianceRisk + (delta.complianceRisk ?? 0),
+    ),
+    timeLeft: clampMetric("timeLeft", metrics.timeLeft + (delta.timeLeft ?? 0)),
+  };
+}
+
+export function applyShiftDelta(metrics: Metrics, delta: MetricDelta): Metrics {
+  return {
+    ...metrics,
     companyCost: clampMetric("companyCost", metrics.companyCost + (delta.companyCost ?? 0)),
     complianceRisk: clampMetric(
       "complianceRisk",
@@ -90,11 +101,18 @@ export function createOutcome(customer: Customer, metrics: Metrics): CustomerOut
   };
 }
 
-export function buildDaySummary(level: LevelConfig, metrics: Metrics, outcomes: CustomerOutcome[]): DaySummary {
+export function buildDaySummary(metrics: Metrics, outcomes: CustomerOutcome[]): DaySummary {
   const complaints = outcomes.filter((outcome) => outcome.status !== "resolved").length;
   const rageQuits = outcomes.filter((outcome) => outcome.status === "rage_quit").length;
   const avgSatisfaction =
     outcomes.reduce((total, outcome) => total + outcome.satisfaction, 0) / Math.max(outcomes.length, 1);
+  const avgAnger =
+    outcomes.reduce((total, outcome) => total + outcome.anger, 0) / Math.max(outcomes.length, 1);
+  const totals: Metrics = {
+    ...metrics,
+    satisfaction: Math.round(avgSatisfaction),
+    anger: Math.round(avgAnger),
+  };
 
   const score =
     avgSatisfaction * 0.45 +
@@ -127,7 +145,7 @@ export function buildDaySummary(level: LevelConfig, metrics: Metrics, outcomes: 
       grade,
       title: "大不了不干了",
       supervisorComment: "你确实没有再受气，但主管也确实在打印离职交接单。游戏可以重开，现实别这么玩。",
-      totals: metrics,
+      totals,
       outcomes,
     };
   }
@@ -136,7 +154,7 @@ export function buildDaySummary(level: LevelConfig, metrics: Metrics, outcomes: 
     grade,
     title: titles[grade],
     supervisorComment: comments[grade],
-    totals: metrics,
+    totals,
     outcomes,
   };
 }

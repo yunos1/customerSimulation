@@ -20,8 +20,11 @@ export default function App() {
   const activeCustomer = activeSession?.customer;
   const visibleMetrics = activeSession
     ? {
-        ...state.metrics,
-        ...activeSession.metrics,
+        satisfaction: activeSession.metrics.satisfaction,
+        anger: activeSession.metrics.anger,
+        companyCost: state.metrics.companyCost,
+        complianceRisk: state.metrics.complianceRisk,
+        timeLeft: state.metrics.timeLeft,
       }
     : state.metrics;
 

@@ -4,7 +4,7 @@ import { buildRandomizedCustomers } from "./customerGenerator";
 import { buildFreeReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
 import { getReactionLine } from "./reactions";
-import { applyDelta, buildDaySummary, createOutcome, scoreReply } from "./scoring";
+import { applyDelta, applyShiftDelta, buildDaySummary, createOutcome, scoreReply } from "./scoring";
 import type {
   ChatMessage,
   Customer,
@@ -23,6 +23,7 @@ const timeoutAlertSeconds = 120;
 const maxOpenSessions = 3;
 const minArrivalDelay = 18;
 const maxArrivalDelay = 35;
+const randomEventChance = 20;
 
 let messageCounter = 0;
 let sessionCounter = 0;
@@ -51,6 +52,7 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
     nextArrivalIn: getArrivalDelay(randomizedLevel.id.length + seed),
     outcomes: [],
     achievements: [],
+    triggeredEventIds: [],
     achievementStats: {
       resolvedCount: 0,
       complaintCount: 0,
@@ -122,6 +124,7 @@ function tick(state: GameState, seed: number): GameState {
     return state;
   }
 
+  const metricsAfterClock = applyShiftDelta(state.metrics, { timeLeft: -1 });
   const nextSessions = state.sessions.map((session): CustomerSession => {
     if (session.status !== "active") {
       return session;
@@ -143,6 +146,7 @@ function tick(state: GameState, seed: number): GameState {
 
   const nextState: GameState = {
     ...state,
+    metrics: metricsAfterClock,
     sessions: nextSessions,
     activeSessionId: getPreferredSessionId(nextSessions, state.activeSessionId),
     achievementStats:
@@ -154,9 +158,18 @@ function tick(state: GameState, seed: number): GameState {
         : state.achievementStats,
   };
 
-  const nextStateWithAchievements = refreshAchievements(nextState);
+  const nextStateWithEvent = maybeTriggerRandomEvent(nextState, seed);
+  const nextStateWithTimeLimit =
+    nextStateWithEvent.metrics.timeLeft <= 0
+      ? closeActiveSessionsForTimeLimit(nextStateWithEvent)
+      : nextStateWithEvent;
+  const nextStateWithAchievements = refreshAchievements(nextStateWithTimeLimit);
 
   if (shouldSummarize(nextStateWithAchievements)) {
+    return summarize(nextStateWithAchievements);
+  }
+
+  if (nextStateWithAchievements.metrics.timeLeft <= 0) {
     return summarize(nextStateWithAchievements);
   }
 
@@ -178,7 +191,6 @@ function tick(state: GameState, seed: number): GameState {
 
   return {
     ...nextStateWithAchievements,
-    nextArrivalIn: 0,
   };
 }
 
@@ -272,12 +284,17 @@ function answerSession(
     return pushBackAtCustomer(state, session, card, isFreeReply);
   }
 
-  const sessionMetrics = {
-    ...state.metrics,
-    ...session.metrics,
-  };
   const { delta, reactionKind } = scoreReply(session.customer, round, card);
-  const nextMetrics = applyDelta(sessionMetrics, delta);
+  const nextSessionMetrics = applySessionDelta(
+    session.metrics,
+    state.metrics,
+    delta,
+  );
+  const nextMetrics = applyShiftDelta(state.metrics, delta);
+  const nextOutcomeMetrics: Metrics = {
+    ...nextMetrics,
+    ...nextSessionMetrics,
+  };
   const reactionLine = getReactionLine(
     session.customer,
     round,
@@ -289,7 +306,7 @@ function answerSession(
     session.customer,
     round,
     nextRoundIndex,
-    nextMetrics,
+    nextOutcomeMetrics,
   );
   const baseMessages = [
     ...session.messages,
@@ -301,7 +318,7 @@ function answerSession(
     const nextSession: CustomerSession = {
       ...session,
       activeRoundIndex: nextRoundIndex,
-      metrics: pickSessionMetrics(nextMetrics),
+      metrics: nextSessionMetrics,
       status: outcome.status === "resolved" ? "resolved" : "failed",
       outcome,
       messages: [
@@ -337,7 +354,7 @@ function answerSession(
   const nextSession: CustomerSession = {
     ...session,
     activeRoundIndex: nextRoundIndex,
-    metrics: pickSessionMetrics(nextMetrics),
+    metrics: nextSessionMetrics,
     messages: [
       ...baseMessages,
       createMessage("customer", nextRound.prompt),
@@ -366,18 +383,17 @@ function pushBackAtCustomer(
     "failure",
     messageCounter + session.elapsedSeconds + session.activeRoundIndex + 91,
   );
-  const nextMetrics = applyDelta(
-    {
-      ...state.metrics,
-      ...session.metrics,
-    },
+  const nextSessionMetrics = applySessionDelta(
+    session.metrics,
+    state.metrics,
     card.effects,
   );
-  const outcome = createRageQuitOutcome(session.customer, nextMetrics);
+  const nextShiftMetrics = applyShiftDelta(state.metrics, card.effects);
+  const outcome = createRageQuitOutcome(session.customer, nextShiftMetrics);
   const nextSession: CustomerSession = {
     ...session,
     status: "failed",
-    metrics: pickSessionMetrics(nextMetrics),
+    metrics: nextSessionMetrics,
     outcome,
     messages: [
       ...session.messages,
@@ -389,7 +405,7 @@ function pushBackAtCustomer(
   const replacedSessions = replaceSession(state.sessions, nextSession);
   const nextState = refreshAchievements({
     ...state,
-    metrics: nextMetrics,
+    metrics: nextShiftMetrics,
     sessions: replacedSessions,
     activeSessionId: getPreferredSessionId(replacedSessions, state.activeSessionId),
     outcomes: [...state.outcomes, outcome],
@@ -442,6 +458,70 @@ function connectRandomCustomer(state: GameState, seed: number): GameState {
   });
 }
 
+function maybeTriggerRandomEvent(state: GameState, seed: number): GameState {
+  const availableEvents = state.level.possibleEvents.filter(
+    (event) => !state.triggeredEventIds.includes(event.id),
+  );
+
+  if (availableEvents.length === 0 || getSeededIndex(seed, randomEventChance) !== 0) {
+    return state;
+  }
+
+  const event = availableEvents[getSeededIndex(seed + messageCounter, availableEvents.length)];
+  const nextMetrics = applyShiftDelta(state.metrics, event.effects);
+
+  return {
+    ...state,
+    metrics: nextMetrics,
+    triggeredEventIds: [...state.triggeredEventIds, event.id],
+    shiftMessages: [
+      ...state.shiftMessages,
+      createMessage("system", `突发事件：${event.title}。${event.description}`),
+    ],
+  };
+}
+
+function closeActiveSessionsForTimeLimit(state: GameState): GameState {
+  const activeSessions = state.sessions.filter((session) => session.status === "active");
+
+  if (activeSessions.length === 0) {
+    return state;
+  }
+
+  const timedOutSessions = activeSessions.map((session) => {
+    const outcome = createTimeLimitOutcome(session.customer, session.metrics, state.metrics);
+
+    return {
+      ...session,
+      status: "failed" as const,
+      outcome,
+      messages: [
+        ...session.messages,
+        createMessage("system", "值班时间耗尽：未完成会话已转为异常记录。"),
+      ],
+    };
+  });
+  const outcomes = timedOutSessions.map((session) => session.outcome);
+  const replacedSessions = state.sessions.map((session) =>
+    timedOutSessions.find((candidate) => candidate.id === session.id) ?? session,
+  );
+
+  return {
+    ...state,
+    sessions: replacedSessions,
+    activeSessionId: getPreferredSessionId(replacedSessions, state.activeSessionId),
+    outcomes: [...state.outcomes, ...outcomes],
+    achievementStats: {
+      ...state.achievementStats,
+      complaintCount: state.achievementStats.complaintCount + outcomes.length,
+    },
+    shiftMessages: [
+      ...state.shiftMessages,
+      createMessage("system", "剩余时间归零，系统已结束所有未完成会话。"),
+    ],
+  };
+}
+
 function createSession(customer: Customer): CustomerSession {
   const firstRound = getActiveRound(customer, 0);
   sessionCounter += 1;
@@ -483,6 +563,14 @@ function maybeBuildOutcome(
   return undefined;
 }
 
+function applySessionDelta(
+  sessionMetrics: CustomerSession["metrics"],
+  shiftMetrics: Metrics,
+  delta: ReplyCard["effects"],
+) {
+  return pickSessionMetrics(applyDelta({ ...shiftMetrics, ...sessionMetrics }, delta));
+}
+
 function createRageQuitOutcome(customer: Customer, metrics: Metrics): CustomerOutcome {
   return {
     customerId: customer.id,
@@ -497,8 +585,29 @@ function createRageQuitOutcome(customer: Customer, metrics: Metrics): CustomerOu
   };
 }
 
+function createTimeLimitOutcome(
+  customer: Customer,
+  sessionMetrics: CustomerSession["metrics"],
+  shiftMetrics: Metrics,
+): CustomerOutcome {
+  const status: CustomerOutcome["status"] =
+    shiftMetrics.complianceRisk >= 100 ? "compliance_escalation" : "complaint";
+
+  return {
+    customerId: customer.id,
+    customerName: customer.name,
+    status,
+    satisfaction: sessionMetrics.satisfaction,
+    anger: sessionMetrics.anger,
+    notes: [
+      "值班时间耗尽，会话未能在当天完成。",
+      status === "compliance_escalation" ? "合规风险过高，主管强制介入。" : "客户等待处理超时，转为投诉记录。",
+    ],
+  };
+}
+
 function summarize(state: GameState): GameState {
-  const summary = buildDaySummary(state.level, state.metrics, state.outcomes);
+  const summary = buildDaySummary(state.metrics, state.outcomes);
   const stateWithSummary = refreshAchievements({
     ...state,
     phase: "summary",

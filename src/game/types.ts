@@ -21,9 +21,6 @@ export type ToneTag =
 export type GamePhase =
   | "intro"
   | "player_reply"
-  | "customer_reaction"
-  | "customer_resolved"
-  | "customer_failed"
   | "summary";
 
 export type CustomerType =
@@ -179,6 +176,7 @@ export interface GameState {
   outcomes: CustomerOutcome[];
   achievements: AchievementId[];
   achievementStats: AchievementStats;
+  triggeredEventIds: string[];
   summary?: DaySummary;
 }
 
