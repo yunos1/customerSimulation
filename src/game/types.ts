@@ -107,6 +107,8 @@ export interface ReplyFeedback {
   riskyTags: ToneTag[];
   metricChanges: MetricDelta;
   reactionKind: ReplyReactionKind;
+  comboNotes: string[];
+  timingRiskNotes: string[];
   message: string;
 }
 
@@ -155,6 +157,9 @@ export type CoachingStats = {
   replyCount: number;
   matchedTagHits: number;
   riskyTagHits: number;
+  comboHitCount: number;
+  timingRiskCount: number;
+  templateFatigueCount: number;
   templateUseCount: number;
   compensationUseCount: number;
   policyUseCount: number;
@@ -167,12 +172,18 @@ export type CoachingStats = {
 
 export type CustomerSessionStatus = "active" | "resolved" | "failed";
 
+export interface ReplyMemory {
+  cardId: string;
+  tags: ToneTag[];
+}
+
 export interface CustomerSession {
   id: string;
   customer: Customer;
   activeRoundIndex: number;
   metrics: Pick<Metrics, "satisfaction" | "anger">;
   messages: ChatMessage[];
+  replyHistory: ReplyMemory[];
   status: CustomerSessionStatus;
   elapsedSeconds: number;
   timeoutCounted: boolean;

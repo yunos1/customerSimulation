@@ -75,6 +75,9 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
       replyCount: 0,
       matchedTagHits: 0,
       riskyTagHits: 0,
+      comboHitCount: 0,
+      timingRiskCount: 0,
+      templateFatigueCount: 0,
       templateUseCount: 0,
       compensationUseCount: 0,
       policyUseCount: 0,
@@ -304,7 +307,10 @@ function answerSession(
     return pushBackAtCustomer(state, session, card, isFreeReply);
   }
 
-  const { delta, reactionKind, feedback } = scoreReply(session.customer, round, card);
+  const { delta, reactionKind, feedback } = scoreReply(session.customer, round, card, {
+    previousReply: getPreviousReply(session),
+    templateUseCount: state.coachingStats.templateUseCount,
+  });
   const nextSessionMetrics = applySessionDelta(
     session.metrics,
     state.metrics,
@@ -341,6 +347,7 @@ function answerSession(
       ...session,
       activeRoundIndex: nextRoundIndex,
       metrics: nextSessionMetrics,
+      replyHistory: [...session.replyHistory, createReplyMemory(card)],
       status: outcome.status === "resolved" ? "resolved" : "failed",
       outcome,
       messages: [
@@ -378,6 +385,7 @@ function answerSession(
     ...session,
     activeRoundIndex: nextRoundIndex,
     metrics: nextSessionMetrics,
+    replyHistory: [...session.replyHistory, createReplyMemory(card)],
     messages: [
       ...baseMessages,
       createMessage("customer", nextRound.prompt),
@@ -419,6 +427,7 @@ function pushBackAtCustomer(
     ...session,
     status: "failed",
     metrics: nextSessionMetrics,
+    replyHistory: [...session.replyHistory, createReplyMemory(card)],
     outcome,
     messages: [
       ...session.messages,
@@ -565,6 +574,7 @@ function createSession(customer: Customer): CustomerSession {
       createMessage("customer", customer.opening),
       createMessage("customer", firstRound.prompt),
     ],
+    replyHistory: [],
     status: "active",
     elapsedSeconds: 0,
     timeoutCounted: false,
@@ -738,16 +748,26 @@ function getNextReplyStats(
 function getNextCoachingStats(
   state: GameState,
   card: ReplyCard,
-  feedback: { matchedTags: ReplyCard["tags"]; riskyTags: ReplyCard["tags"] },
+  feedback: {
+    matchedTags: ReplyCard["tags"];
+    riskyTags: ReplyCard["tags"];
+    comboNotes: string[];
+    timingRiskNotes: string[];
+  },
   isFreeReply: boolean,
 ) {
   const has = (tag: ReplyCard["tags"][number]) => card.tags.includes(tag);
+  const hasTemplateFatigue = feedback.timingRiskNotes.some((note) => note.includes("模板"));
 
   return {
     ...state.coachingStats,
     replyCount: state.coachingStats.replyCount + 1,
     matchedTagHits: state.coachingStats.matchedTagHits + feedback.matchedTags.length,
     riskyTagHits: state.coachingStats.riskyTagHits + feedback.riskyTags.length,
+    comboHitCount: state.coachingStats.comboHitCount + feedback.comboNotes.length,
+    timingRiskCount: state.coachingStats.timingRiskCount + feedback.timingRiskNotes.length,
+    templateFatigueCount:
+      state.coachingStats.templateFatigueCount + (hasTemplateFatigue ? 1 : 0),
     templateUseCount: state.coachingStats.templateUseCount + (has("template") ? 1 : 0),
     compensationUseCount: state.coachingStats.compensationUseCount + (has("compensation") ? 1 : 0),
     policyUseCount: state.coachingStats.policyUseCount + (has("policy") ? 1 : 0),
@@ -758,6 +778,17 @@ function getNextCoachingStats(
     supervisorUseCount: state.coachingStats.supervisorUseCount + (has("supervisor") ? 1 : 0),
     pushbackUseCount: state.coachingStats.pushbackUseCount + (has("pushback") ? 1 : 0),
     freeReplyUseCount: state.coachingStats.freeReplyUseCount + (isFreeReply ? 1 : 0),
+  };
+}
+
+function getPreviousReply(session: CustomerSession) {
+  return session.replyHistory[session.replyHistory.length - 1];
+}
+
+function createReplyMemory(card: ReplyCard) {
+  return {
+    cardId: card.id,
+    tags: card.tags,
   };
 }
 

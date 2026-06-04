@@ -8,6 +8,7 @@ import type {
   Metrics,
   ReplyFeedback,
   ReplyCard,
+  ReplyMemory,
   ReplyReactionKind,
   SummaryDiagnostic,
   ToneTag,
@@ -51,26 +52,69 @@ export function applyShiftDelta(metrics: Metrics, delta: MetricDelta): Metrics {
   };
 }
 
-export function scoreReply(customer: Customer, round: CustomerRound, card: ReplyCard) {
+type ReplyScoringContext = {
+  previousReply?: ReplyMemory;
+  templateUseCount: number;
+};
+
+type ReplyModifier = {
+  delta: MetricDelta;
+  reactionBias: number;
+  comboNotes: string[];
+  timingRiskNotes: string[];
+};
+
+export function scoreReply(
+  customer: Customer,
+  round: CustomerRound,
+  card: ReplyCard,
+  context: ReplyScoringContext,
+) {
   const matchedTags = getTagOverlap(card.tags, round.preferredTags);
   const riskyTags = getTagOverlap(card.tags, round.riskyTags);
   const preferredHits = matchedTags.length;
   const riskyHits = riskyTags.length;
   const customerModifier = getCustomerTypeModifier(customer.type, card.tags);
+  const sequenceModifier = getSequenceModifier(card, context);
 
   const delta: MetricDelta = {
     ...card.effects,
     satisfaction:
-      (card.effects.satisfaction ?? 0) + preferredHits * 8 - riskyHits * 7 + customerModifier.satisfaction,
-    anger: (card.effects.anger ?? 0) - preferredHits * 7 + riskyHits * 10 + customerModifier.anger,
+      (card.effects.satisfaction ?? 0) +
+      preferredHits * 8 -
+      riskyHits * 7 +
+      customerModifier.satisfaction +
+      (sequenceModifier.delta.satisfaction ?? 0),
+    anger:
+      (card.effects.anger ?? 0) -
+      preferredHits * 7 +
+      riskyHits * 10 +
+      customerModifier.anger +
+      (sequenceModifier.delta.anger ?? 0),
+    companyCost: (card.effects.companyCost ?? 0) + (sequenceModifier.delta.companyCost ?? 0),
     complianceRisk:
-      (card.effects.complianceRisk ?? 0) + riskyHits * 4 + customerModifier.complianceRisk,
+      (card.effects.complianceRisk ?? 0) +
+      riskyHits * 4 +
+      customerModifier.complianceRisk +
+      (sequenceModifier.delta.complianceRisk ?? 0),
+    timeLeft: (card.effects.timeLeft ?? 0) + (sequenceModifier.delta.timeLeft ?? 0),
   };
 
-  const reactionScore = preferredHits * 2 - riskyHits + customerModifier.reactionBias;
+  const reactionScore =
+    preferredHits * 2 -
+    riskyHits +
+    customerModifier.reactionBias +
+    sequenceModifier.reactionBias;
   const reactionKind: ReplyReactionKind =
     reactionScore >= 2 ? "success" : reactionScore <= -1 ? "failure" : "neutral";
-  const feedback = buildReplyFeedback(card, round, delta, reactionKind);
+  const feedback = buildReplyFeedback(
+    card,
+    round,
+    delta,
+    reactionKind,
+    sequenceModifier.comboNotes,
+    sequenceModifier.timingRiskNotes,
+  );
 
   return { delta, reactionKind, feedback };
 }
@@ -80,6 +124,8 @@ export function buildReplyFeedback(
   round: CustomerRound,
   delta: MetricDelta,
   reactionKind: ReplyReactionKind,
+  comboNotes: string[] = [],
+  timingRiskNotes: string[] = [],
 ): ReplyFeedback {
   const matchedTags = getTagOverlap(card.tags, round.preferredTags);
   const riskyTags = card.tags.includes("pushback")
@@ -92,7 +138,16 @@ export function buildReplyFeedback(
     riskyTags,
     metricChanges,
     reactionKind,
-    message: buildFeedbackMessage(matchedTags, riskyTags, metricChanges, reactionKind),
+    comboNotes,
+    timingRiskNotes,
+    message: buildFeedbackMessage(
+      matchedTags,
+      riskyTags,
+      metricChanges,
+      reactionKind,
+      comboNotes,
+      timingRiskNotes,
+    ),
   };
 }
 
@@ -222,6 +277,8 @@ function buildFeedbackMessage(
   riskyTags: ToneTag[],
   metricChanges: MetricDelta,
   reactionKind: ReplyReactionKind,
+  comboNotes: string[],
+  timingRiskNotes: string[],
 ) {
   const matchedText =
     matchedTags.length > 0
@@ -232,8 +289,9 @@ function buildFeedbackMessage(
       ? `踩雷：${riskyTags.map(getToneTagLabel).join("、")}`
       : "没有踩到明显雷点";
   const metricText = formatMetricChanges(metricChanges);
+  const sequenceText = formatSequenceNotes(comboNotes, timingRiskNotes);
 
-  return `接待复盘：${matchedText}；${riskyText}；${metricText}。${getReactionHint(reactionKind)}`;
+  return `接待复盘：${matchedText}；${riskyText}；${sequenceText}；${metricText}。${getReactionHint(reactionKind)}`;
 }
 
 function getReactionHint(reactionKind: ReplyReactionKind) {
@@ -258,6 +316,19 @@ function formatMetricChanges(metricChanges: MetricDelta) {
   }
 
   return `影响：${items.join("，")}`;
+}
+
+function formatSequenceNotes(comboNotes: string[], timingRiskNotes: string[]) {
+  const notes = [
+    ...comboNotes.map((note) => `连招：${note}`),
+    ...timingRiskNotes.map((note) => `时机风险：${note}`),
+  ];
+
+  if (notes.length === 0) {
+    return "节奏：常规衔接";
+  }
+
+  return notes.join("；");
 }
 
 function formatSignedMetric(metric: keyof Metrics, value: number) {
@@ -299,6 +370,125 @@ const toneTagLabels: Record<ToneTag, string> = {
 
 function getToneTagLabel(tag: ToneTag) {
   return toneTagLabels[tag];
+}
+
+function getSequenceModifier(card: ReplyCard, context: ReplyScoringContext): ReplyModifier {
+  const previousTags = context.previousReply?.tags ?? [];
+  const has = (tag: ToneTag) => card.tags.includes(tag);
+  const had = (tag: ToneTag) => previousTags.includes(tag);
+  const modifier: ReplyModifier = {
+    delta: {},
+    reactionBias: 0,
+    comboNotes: [],
+    timingRiskNotes: [],
+  };
+
+  if ((had("apology") || had("empathy")) && (has("investigate") || has("refund_check") || has("logistics"))) {
+    addModifier(modifier, {
+      delta: { satisfaction: 5, anger: -4 },
+      reactionBias: 1,
+      comboNote: "先接情绪再推进动作，客户更容易跟着走。",
+    });
+  }
+
+  if (had("investigate") && (has("policy") || has("refund_check") || has("supervisor"))) {
+    addModifier(modifier, {
+      delta: { satisfaction: 4, complianceRisk: -3 },
+      reactionBias: 1,
+      comboNote: "先查证再给边界，方案听起来更可信。",
+    });
+  }
+
+  if (had("policy") && has("reject")) {
+    addModifier(modifier, {
+      delta: { anger: -5, complianceRisk: -2 },
+      reactionBias: 1,
+      comboNote: "先讲依据再拒绝，硬边界不那么像推脱。",
+    });
+  }
+
+  if (had("policy") && has("compensation")) {
+    addModifier(modifier, {
+      delta: { satisfaction: 3, complianceRisk: -4 },
+      reactionBias: 1,
+      comboNote: "先定规则再补偿，承诺更不容易失控。",
+    });
+  }
+
+  if (had("template") && has("template")) {
+    addModifier(modifier, {
+      delta: { satisfaction: -6, anger: 8 },
+      reactionBias: -2,
+      timingRiskNote: "连续模板会让客户觉得你没有看上下文。",
+    });
+  }
+
+  if (has("compensation") && !had("policy") && !had("investigate") && !had("supervisor")) {
+    addModifier(modifier, {
+      delta: { complianceRisk: 8, companyCost: 5 },
+      reactionBias: -1,
+      timingRiskNote: "没有查证或政策铺垫就补偿，客户可能继续试探上限。",
+    });
+  }
+
+  if (has("reject") && !had("policy") && !had("empathy") && !had("apology")) {
+    addModifier(modifier, {
+      delta: { satisfaction: -5, anger: 7 },
+      reactionBias: -1,
+      timingRiskNote: "没有安抚或依据就拒绝，容易被理解成甩锅。",
+    });
+  }
+
+  if (has("policy") && !had("apology") && !had("empathy") && !had("investigate") && !had("policy")) {
+    addModifier(modifier, {
+      delta: { anger: 4 },
+      reactionBias: -1,
+      timingRiskNote: "开场直接念规则，情绪型客户会觉得你在挡问题。",
+    });
+  }
+
+  if (has("template") && context.templateUseCount >= 2) {
+    addModifier(modifier, {
+      delta: { satisfaction: -4, anger: 6 },
+      reactionBias: -1,
+      timingRiskNote: "今日模板已经偏多，客户对复制粘贴更敏感。",
+    });
+  }
+
+  return modifier;
+}
+
+function addModifier(
+  modifier: ReplyModifier,
+  rule: {
+    delta: MetricDelta;
+    reactionBias: number;
+    comboNote?: string;
+    timingRiskNote?: string;
+  },
+) {
+  modifier.delta = mergeDelta(modifier.delta, rule.delta);
+  modifier.reactionBias += rule.reactionBias;
+
+  if (rule.comboNote) {
+    modifier.comboNotes.push(rule.comboNote);
+  }
+
+  if (rule.timingRiskNote) {
+    modifier.timingRiskNotes.push(rule.timingRiskNote);
+  }
+}
+
+function mergeDelta(base: MetricDelta, extra: MetricDelta): MetricDelta {
+  return metricOrder.reduce<MetricDelta>((nextDelta, metric) => {
+    const value = (base[metric] ?? 0) + (extra[metric] ?? 0);
+
+    if (value !== 0) {
+      nextDelta[metric] = value;
+    }
+
+    return nextDelta;
+  }, {});
 }
 
 function buildSummaryDiagnostics(
@@ -364,6 +554,33 @@ function buildSummaryDiagnostics(
       id: "template-heavy",
       title: "模板味偏重",
       body: `标准模板用了 ${coachingStats.templateUseCount} 次。高怒气或被动攻击型客户会把它理解成敷衍。`,
+      tone: "warning",
+    });
+  }
+
+  if (coachingStats.comboHitCount >= 3) {
+    diagnostics.push({
+      id: "combo-good",
+      title: "话术衔接漂亮",
+      body: `今天打出了 ${coachingStats.comboHitCount} 次有效连招，说明你开始按“安抚、查证、边界、方案”的顺序控场。`,
+      tone: "good",
+    });
+  }
+
+  if (coachingStats.timingRiskCount >= 3) {
+    diagnostics.push({
+      id: "timing-risk",
+      title: "出牌时机偏急",
+      body: `有 ${coachingStats.timingRiskCount} 次回复触发时机风险。补偿、拒绝和政策说明最好先铺垫。`,
+      tone: "warning",
+    });
+  }
+
+  if (coachingStats.templateFatigueCount > 0) {
+    diagnostics.push({
+      id: "template-fatigue",
+      title: "模板疲劳出现",
+      body: `今日模板疲劳触发 ${coachingStats.templateFatigueCount} 次。越到后面，标准话术越需要配合具体订单信息。`,
       tone: "warning",
     });
   }
