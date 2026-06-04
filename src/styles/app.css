@@ -505,6 +505,10 @@
   box-shadow: none;
 }
 
+.message-system .message-copy p {
+  font-size: 13px;
+}
+
 .message-customer {
   align-self: flex-start;
 }
@@ -1280,6 +1284,84 @@
   font-weight: 900;
 }
 
+.diagnostic-list {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.diagnostic-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border: 1px solid rgba(70, 118, 110, 0.2);
+  border-radius: 8px;
+  background: rgba(246, 252, 248, 0.78);
+  padding: 11px;
+}
+
+.diagnostic-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(70, 118, 110, 0.18);
+  border-radius: 8px;
+  background: rgba(224, 239, 233, 0.9);
+  color: var(--muted-strong);
+}
+
+.diagnostic-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.diagnostic-copy strong {
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.diagnostic-copy small {
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diagnostic-good {
+  border-color: rgba(33, 150, 109, 0.22);
+  background: rgba(230, 248, 235, 0.78);
+}
+
+.diagnostic-good .diagnostic-icon {
+  background: rgba(205, 244, 218, 0.9);
+  color: #16623d;
+}
+
+.diagnostic-warning,
+.diagnostic-tip {
+  border-color: rgba(183, 129, 28, 0.24);
+  background: rgba(255, 248, 225, 0.74);
+}
+
+.diagnostic-warning .diagnostic-icon,
+.diagnostic-tip .diagnostic-icon {
+  background: rgba(251, 240, 201, 0.92);
+  color: #815d19;
+}
+
+.diagnostic-risk {
+  border-color: rgba(201, 75, 87, 0.26);
+  background: rgba(255, 237, 237, 0.8);
+}
+
+.diagnostic-risk .diagnostic-icon {
+  background: rgba(255, 226, 226, 0.92);
+  color: #8d2430;
+}
+
 @media (max-width: 1180px) {
   .metrics-bar {
     grid-template-columns: repeat(3, 1fr);
@@ -1322,7 +1404,8 @@
   .reply-grid,
   .free-reply-form,
   .summary-metrics,
-  .outcome-list {
+  .outcome-list,
+  .diagnostic-list {
     grid-template-columns: 1fr;
   }
 

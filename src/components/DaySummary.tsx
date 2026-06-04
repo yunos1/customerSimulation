@@ -1,4 +1,4 @@
-import { RotateCcw, Trophy } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Lightbulb, RotateCcw, Trophy } from "lucide-react";
 import type { DaySummary as DaySummaryType } from "../game/types";
 
 interface DaySummaryProps {
@@ -51,6 +51,24 @@ export function DaySummary({ summary, onRestart }: DaySummaryProps) {
         ))}
       </div>
 
+      <div className="diagnostic-list">
+        {summary.diagnostics.map((diagnostic) => {
+          const Icon = getDiagnosticIcon(diagnostic.tone);
+
+          return (
+            <article className={`diagnostic-item diagnostic-${diagnostic.tone}`} key={diagnostic.id}>
+              <span className="diagnostic-icon">
+                <Icon size={17} aria-hidden="true" />
+              </span>
+              <span className="diagnostic-copy">
+                <strong>{diagnostic.title}</strong>
+                <small>{diagnostic.body}</small>
+              </span>
+            </article>
+          );
+        })}
+      </div>
+
       <button className="primary-button" type="button" onClick={onRestart}>
         <RotateCcw size={17} aria-hidden="true" />
         重新值班
@@ -73,4 +91,16 @@ function getOutcomeLabel(status: DaySummaryType["outcomes"][number]["status"]) {
   }
 
   return "投诉";
+}
+
+function getDiagnosticIcon(tone: DaySummaryType["diagnostics"][number]["tone"]) {
+  if (tone === "good") {
+    return BadgeCheck;
+  }
+
+  if (tone === "risk") {
+    return AlertTriangle;
+  }
+
+  return Lightbulb;
 }

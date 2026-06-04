@@ -4,7 +4,14 @@ import { buildRandomizedCustomers } from "./customerGenerator";
 import { buildFreeReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
 import { getReactionLine } from "./reactions";
-import { applyDelta, applyShiftDelta, buildDaySummary, createOutcome, scoreReply } from "./scoring";
+import {
+  applyDelta,
+  applyShiftDelta,
+  buildDaySummary,
+  buildReplyFeedback,
+  createOutcome,
+  scoreReply,
+} from "./scoring";
 import type {
   ChatMessage,
   Customer,
@@ -63,6 +70,19 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
       savedAngryCustomerCount: 0,
       recoveredLowSatisfactionCount: 0,
       rageQuitCount: 0,
+    },
+    coachingStats: {
+      replyCount: 0,
+      matchedTagHits: 0,
+      riskyTagHits: 0,
+      templateUseCount: 0,
+      compensationUseCount: 0,
+      policyUseCount: 0,
+      investigationUseCount: 0,
+      empathyUseCount: 0,
+      supervisorUseCount: 0,
+      pushbackUseCount: 0,
+      freeReplyUseCount: 0,
     },
   };
 }
@@ -284,7 +304,7 @@ function answerSession(
     return pushBackAtCustomer(state, session, card, isFreeReply);
   }
 
-  const { delta, reactionKind } = scoreReply(session.customer, round, card);
+  const { delta, reactionKind, feedback } = scoreReply(session.customer, round, card);
   const nextSessionMetrics = applySessionDelta(
     session.metrics,
     state.metrics,
@@ -312,7 +332,9 @@ function answerSession(
     ...session.messages,
     createMessage("agent", card.title),
     createMessage("customer", reactionLine),
+    createMessage("system", feedback.message),
   ];
+  const nextCoachingStats = getNextCoachingStats(state, card, feedback, isFreeReply);
 
   if (outcome) {
     const nextSession: CustomerSession = {
@@ -336,6 +358,7 @@ function answerSession(
       activeSessionId: getPreferredSessionId(replacedSessions, state.activeSessionId),
       outcomes: [...state.outcomes, outcome],
       achievementStats: getNextReplyStats(state, session, outcome, isFreeReply),
+      coachingStats: nextCoachingStats,
       shiftMessages: [
         ...state.shiftMessages,
         createMessage("system", `${session.customer.name}会话已结束：${getOutcomeLabel(outcome.status)}。`),
@@ -366,6 +389,7 @@ function answerSession(
     metrics: nextMetrics,
     sessions: replaceSession(state.sessions, nextSession),
     achievementStats: getNextReplyStats(state, session, undefined, isFreeReply),
+    coachingStats: nextCoachingStats,
   });
 }
 
@@ -390,6 +414,7 @@ function pushBackAtCustomer(
   );
   const nextShiftMetrics = applyShiftDelta(state.metrics, card.effects);
   const outcome = createRageQuitOutcome(session.customer, nextShiftMetrics);
+  const feedback = buildReplyFeedback(card, round, card.effects, "failure");
   const nextSession: CustomerSession = {
     ...session,
     status: "failed",
@@ -399,6 +424,7 @@ function pushBackAtCustomer(
       ...session.messages,
       createMessage("agent", card.title),
       createMessage("customer", reactionLine),
+      createMessage("system", feedback.message),
       createMessage("system", "硬刚结局：你把耳麦一摘，今日绩效开始冒烟。"),
     ],
   };
@@ -413,6 +439,7 @@ function pushBackAtCustomer(
       ...getNextReplyStats(state, session, outcome, isFreeReply),
       rageQuitCount: state.achievementStats.rageQuitCount + 1,
     },
+    coachingStats: getNextCoachingStats(state, card, feedback, isFreeReply),
     shiftMessages: [
       ...state.shiftMessages,
       createMessage("system", `${session.customer.name}被你怼回去了：触发硬刚结局。`),
@@ -607,7 +634,12 @@ function createTimeLimitOutcome(
 }
 
 function summarize(state: GameState): GameState {
-  const summary = buildDaySummary(state.metrics, state.outcomes);
+  const summary = buildDaySummary(
+    state.metrics,
+    state.outcomes,
+    state.coachingStats,
+    state.achievementStats.timeoutCount,
+  );
   const stateWithSummary = refreshAchievements({
     ...state,
     phase: "summary",
@@ -700,6 +732,32 @@ function getNextReplyStats(
     recoveredLowSatisfactionCount:
       state.achievementStats.recoveredLowSatisfactionCount +
       (isResolved && session.customer.initialMetrics.satisfaction < 40 ? 1 : 0),
+  };
+}
+
+function getNextCoachingStats(
+  state: GameState,
+  card: ReplyCard,
+  feedback: { matchedTags: ReplyCard["tags"]; riskyTags: ReplyCard["tags"] },
+  isFreeReply: boolean,
+) {
+  const has = (tag: ReplyCard["tags"][number]) => card.tags.includes(tag);
+
+  return {
+    ...state.coachingStats,
+    replyCount: state.coachingStats.replyCount + 1,
+    matchedTagHits: state.coachingStats.matchedTagHits + feedback.matchedTags.length,
+    riskyTagHits: state.coachingStats.riskyTagHits + feedback.riskyTags.length,
+    templateUseCount: state.coachingStats.templateUseCount + (has("template") ? 1 : 0),
+    compensationUseCount: state.coachingStats.compensationUseCount + (has("compensation") ? 1 : 0),
+    policyUseCount: state.coachingStats.policyUseCount + (has("policy") ? 1 : 0),
+    investigationUseCount:
+      state.coachingStats.investigationUseCount + (has("investigate") ? 1 : 0),
+    empathyUseCount:
+      state.coachingStats.empathyUseCount + (has("empathy") || has("apology") ? 1 : 0),
+    supervisorUseCount: state.coachingStats.supervisorUseCount + (has("supervisor") ? 1 : 0),
+    pushbackUseCount: state.coachingStats.pushbackUseCount + (has("pushback") ? 1 : 0),
+    freeReplyUseCount: state.coachingStats.freeReplyUseCount + (isFreeReply ? 1 : 0),
   };
 }
 

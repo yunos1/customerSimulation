@@ -2,10 +2,14 @@ import type {
   Customer,
   CustomerOutcome,
   CustomerRound,
+  CoachingStats,
   DaySummary,
   MetricDelta,
   Metrics,
+  ReplyFeedback,
   ReplyCard,
+  ReplyReactionKind,
+  SummaryDiagnostic,
   ToneTag,
 } from "./types";
 
@@ -48,8 +52,10 @@ export function applyShiftDelta(metrics: Metrics, delta: MetricDelta): Metrics {
 }
 
 export function scoreReply(customer: Customer, round: CustomerRound, card: ReplyCard) {
-  const preferredHits = countTagOverlap(card.tags, round.preferredTags);
-  const riskyHits = countTagOverlap(card.tags, round.riskyTags);
+  const matchedTags = getTagOverlap(card.tags, round.preferredTags);
+  const riskyTags = getTagOverlap(card.tags, round.riskyTags);
+  const preferredHits = matchedTags.length;
+  const riskyHits = riskyTags.length;
   const customerModifier = getCustomerTypeModifier(customer.type, card.tags);
 
   const delta: MetricDelta = {
@@ -62,10 +68,32 @@ export function scoreReply(customer: Customer, round: CustomerRound, card: Reply
   };
 
   const reactionScore = preferredHits * 2 - riskyHits + customerModifier.reactionBias;
-  const reactionKind: "success" | "neutral" | "failure" =
+  const reactionKind: ReplyReactionKind =
     reactionScore >= 2 ? "success" : reactionScore <= -1 ? "failure" : "neutral";
+  const feedback = buildReplyFeedback(card, round, delta, reactionKind);
 
-  return { delta, reactionKind };
+  return { delta, reactionKind, feedback };
+}
+
+export function buildReplyFeedback(
+  card: ReplyCard,
+  round: CustomerRound,
+  delta: MetricDelta,
+  reactionKind: ReplyReactionKind,
+): ReplyFeedback {
+  const matchedTags = getTagOverlap(card.tags, round.preferredTags);
+  const riskyTags = card.tags.includes("pushback")
+    ? Array.from(new Set([...getTagOverlap(card.tags, round.riskyTags), "pushback" as const]))
+    : getTagOverlap(card.tags, round.riskyTags);
+  const metricChanges = pickMeaningfulMetricChanges(delta);
+
+  return {
+    matchedTags,
+    riskyTags,
+    metricChanges,
+    reactionKind,
+    message: buildFeedbackMessage(matchedTags, riskyTags, metricChanges, reactionKind),
+  };
 }
 
 export function createOutcome(customer: Customer, metrics: Metrics): CustomerOutcome {
@@ -101,7 +129,12 @@ export function createOutcome(customer: Customer, metrics: Metrics): CustomerOut
   };
 }
 
-export function buildDaySummary(metrics: Metrics, outcomes: CustomerOutcome[]): DaySummary {
+export function buildDaySummary(
+  metrics: Metrics,
+  outcomes: CustomerOutcome[],
+  coachingStats: CoachingStats,
+  timeoutCount: number,
+): DaySummary {
   const complaints = outcomes.filter((outcome) => outcome.status !== "resolved").length;
   const rageQuits = outcomes.filter((outcome) => outcome.status === "rage_quit").length;
   const avgSatisfaction =
@@ -139,6 +172,7 @@ export function buildDaySummary(metrics: Metrics, outcomes: CustomerOutcome[]): 
     C: "被主管约谈",
     D: "今日工位不保",
   };
+  const diagnostics = buildSummaryDiagnostics(metrics, outcomes, coachingStats, timeoutCount);
 
   if (rageQuits > 0) {
     return {
@@ -147,6 +181,7 @@ export function buildDaySummary(metrics: Metrics, outcomes: CustomerOutcome[]): 
       supervisorComment: "你确实没有再受气，但主管也确实在打印离职交接单。游戏可以重开，现实别这么玩。",
       totals,
       outcomes,
+      diagnostics,
     };
   }
 
@@ -156,12 +191,241 @@ export function buildDaySummary(metrics: Metrics, outcomes: CustomerOutcome[]): 
     supervisorComment: comments[grade],
     totals,
     outcomes,
+    diagnostics,
   };
 }
 
-function countTagOverlap(source: ToneTag[], target: ToneTag[]) {
+function getTagOverlap(source: ToneTag[], target: ToneTag[]) {
   const targetSet = new Set(target);
-  return source.filter((tag) => targetSet.has(tag)).length;
+
+  return source.filter((tag) => targetSet.has(tag));
+}
+
+function countTagOverlap(source: ToneTag[], target: ToneTag[]) {
+  return getTagOverlap(source, target).length;
+}
+
+function pickMeaningfulMetricChanges(delta: MetricDelta): MetricDelta {
+  return (Object.keys(delta) as Array<keyof Metrics>).reduce<MetricDelta>((changes, metric) => {
+    const value = delta[metric];
+
+    if (value && value !== 0) {
+      changes[metric] = Math.round(value);
+    }
+
+    return changes;
+  }, {});
+}
+
+function buildFeedbackMessage(
+  matchedTags: ToneTag[],
+  riskyTags: ToneTag[],
+  metricChanges: MetricDelta,
+  reactionKind: ReplyReactionKind,
+) {
+  const matchedText =
+    matchedTags.length > 0
+      ? `命中：${matchedTags.map(getToneTagLabel).join("、")}`
+      : "未命中这轮核心诉求";
+  const riskyText =
+    riskyTags.length > 0
+      ? `踩雷：${riskyTags.map(getToneTagLabel).join("、")}`
+      : "没有踩到明显雷点";
+  const metricText = formatMetricChanges(metricChanges);
+
+  return `接待复盘：${matchedText}；${riskyText}；${metricText}。${getReactionHint(reactionKind)}`;
+}
+
+function getReactionHint(reactionKind: ReplyReactionKind) {
+  if (reactionKind === "success") {
+    return "客户明显被你接住了，可以顺势推进具体方案。";
+  }
+
+  if (reactionKind === "failure") {
+    return "客户没有买账，下一句最好补上具体动作或政策依据。";
+  }
+
+  return "客户态度有松动，但还需要更明确的下一步。";
+}
+
+function formatMetricChanges(metricChanges: MetricDelta) {
+  const items = metricOrder
+    .filter((metric) => metricChanges[metric])
+    .map((metric) => `${metricLabels[metric]} ${formatSignedMetric(metric, metricChanges[metric] ?? 0)}`);
+
+  if (items.length === 0) {
+    return "指标基本不变";
+  }
+
+  return `影响：${items.join("，")}`;
+}
+
+function formatSignedMetric(metric: keyof Metrics, value: number) {
+  const prefix = value > 0 ? "+" : "";
+  const suffix = metric === "companyCost" ? " 元" : metric === "timeLeft" ? " 分" : "";
+
+  return `${prefix}${value}${suffix}`;
+}
+
+const metricOrder: Array<keyof Metrics> = [
+  "satisfaction",
+  "anger",
+  "companyCost",
+  "complianceRisk",
+  "timeLeft",
+];
+
+const metricLabels: Record<keyof Metrics, string> = {
+  satisfaction: "满意度",
+  anger: "怒气",
+  companyCost: "成本",
+  complianceRisk: "合规",
+  timeLeft: "时间",
+};
+
+const toneTagLabels: Record<ToneTag, string> = {
+  apology: "道歉",
+  policy: "政策边界",
+  refund_check: "退款复核",
+  logistics: "物流追踪",
+  compensation: "补偿",
+  reject: "明确拒绝",
+  supervisor: "主管升级",
+  template: "模板话术",
+  empathy: "共情",
+  investigate: "查证",
+  pushback: "硬刚",
+};
+
+function getToneTagLabel(tag: ToneTag) {
+  return toneTagLabels[tag];
+}
+
+function buildSummaryDiagnostics(
+  metrics: Metrics,
+  outcomes: CustomerOutcome[],
+  coachingStats: CoachingStats,
+  timeoutCount: number,
+) {
+  const diagnostics: SummaryDiagnostic[] = [];
+  const complaints = outcomes.filter((outcome) => outcome.status !== "resolved").length;
+  const resolved = outcomes.length - complaints;
+
+  if (complaints === 0 && outcomes.length > 0) {
+    diagnostics.push({
+      id: "resolved-all",
+      title: "收尾稳定",
+      body: `今天 ${resolved} 位客户都接受了处理方案，说明你能把情绪安抚和后续动作连起来。`,
+      tone: "good",
+    });
+  } else if (complaints > 0) {
+    diagnostics.push({
+      id: "complaint-risk",
+      title: "异常单偏多",
+      body: `${complaints} 位客户没有被稳住。复盘时优先看这些会话里是否过早拒绝、补偿或使用模板。`,
+      tone: "risk",
+    });
+  }
+
+  if (metrics.complianceRisk >= 70) {
+    diagnostics.push({
+      id: "compliance-high",
+      title: "合规压力高",
+      body: `合规风险收在 ${metrics.complianceRisk}，已经接近主管强制介入线。高价值承诺前先补政策依据。`,
+      tone: "risk",
+    });
+  } else if (metrics.complianceRisk <= 20) {
+    diagnostics.push({
+      id: "compliance-low",
+      title: "边界感清楚",
+      body: "合规风险保持在低位，说明你没有为了快速安抚而乱承诺。",
+      tone: "good",
+    });
+  }
+
+  if (metrics.companyCost >= 70 || coachingStats.compensationUseCount >= 3) {
+    diagnostics.push({
+      id: "cost-high",
+      title: "补偿使用偏重",
+      body: `今天用了 ${coachingStats.compensationUseCount} 次补偿，成本来到 ${metrics.companyCost} 元。先查证再补偿会更稳。`,
+      tone: "warning",
+    });
+  } else if (metrics.companyCost <= 30) {
+    diagnostics.push({
+      id: "cost-low",
+      title: "预算守得住",
+      body: `公司成本控制在 ${metrics.companyCost} 元，说明你没有把优惠券当万能灭火器。`,
+      tone: "good",
+    });
+  }
+
+  if (coachingStats.templateUseCount >= 2) {
+    diagnostics.push({
+      id: "template-heavy",
+      title: "模板味偏重",
+      body: `标准模板用了 ${coachingStats.templateUseCount} 次。高怒气或被动攻击型客户会把它理解成敷衍。`,
+      tone: "warning",
+    });
+  }
+
+  if (coachingStats.riskyTagHits > coachingStats.matchedTagHits) {
+    diagnostics.push({
+      id: "risky-tags",
+      title: "踩雷多于命中",
+      body: `话术踩雷 ${coachingStats.riskyTagHits} 次，高于命中 ${coachingStats.matchedTagHits} 次。下一局先读客户提示再出牌。`,
+      tone: "warning",
+    });
+  } else if (coachingStats.matchedTagHits >= coachingStats.replyCount && coachingStats.replyCount > 0) {
+    diagnostics.push({
+      id: "matched-tags",
+      title: "诉求判断准",
+      body: `你在 ${coachingStats.replyCount} 次回复里命中 ${coachingStats.matchedTagHits} 个关键诉求，客户反应会更可控。`,
+      tone: "good",
+    });
+  }
+
+  if (timeoutCount > 0) {
+    diagnostics.push({
+      id: "timeouts",
+      title: "等待提醒出现",
+      body: `有 ${timeoutCount} 次会话等待超过 2 分钟。并发时优先点开红色提醒，别让情绪自然升温。`,
+      tone: "warning",
+    });
+  } else {
+    diagnostics.push({
+      id: "no-timeout",
+      title: "节奏没有失控",
+      body: "没有客户等到红色提醒，说明你在多线会话里切换得比较及时。",
+      tone: "good",
+    });
+  }
+
+  if (coachingStats.freeReplyUseCount >= 3) {
+    diagnostics.push({
+      id: "free-reply",
+      title: "人味够",
+      body: "自由回复用得不少，客户会更容易感到自己不是在和自动流程对话。",
+      tone: "good",
+    });
+  } else {
+    diagnostics.push({
+      id: "free-reply-tip",
+      title: "可以多写一句",
+      body: "下局试着在关键节点用自由回复补一句具体承诺，系统会按语义识别你的意图。",
+      tone: "tip",
+    });
+  }
+
+  if (metrics.timeLeft <= 10) {
+    diagnostics.push({
+      id: "time-tight",
+      title: "时间压线",
+      body: "剩余时间很少，说明部分处理动作过重。事实清楚时可以少查一次，直接给边界和下一步。",
+      tone: "warning",
+    });
+  }
+
+  return diagnostics.slice(0, 5);
 }
 
 function getCustomerTypeModifier(type: Customer["type"], tags: ToneTag[]) {

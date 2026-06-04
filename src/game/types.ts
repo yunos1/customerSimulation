@@ -23,6 +23,8 @@ export type GamePhase =
   | "player_reply"
   | "summary";
 
+export type ReplyReactionKind = "success" | "neutral" | "failure";
+
 export type CustomerType =
   | "angry_refund"
   | "lost_package"
@@ -100,6 +102,14 @@ export interface ChatMessage {
   text: string;
 }
 
+export interface ReplyFeedback {
+  matchedTags: ToneTag[];
+  riskyTags: ToneTag[];
+  metricChanges: MetricDelta;
+  reactionKind: ReplyReactionKind;
+  message: string;
+}
+
 export interface CustomerOutcome {
   customerId: string;
   customerName: string;
@@ -141,6 +151,20 @@ export type AchievementStats = {
   rageQuitCount: number;
 };
 
+export type CoachingStats = {
+  replyCount: number;
+  matchedTagHits: number;
+  riskyTagHits: number;
+  templateUseCount: number;
+  compensationUseCount: number;
+  policyUseCount: number;
+  investigationUseCount: number;
+  empathyUseCount: number;
+  supervisorUseCount: number;
+  pushbackUseCount: number;
+  freeReplyUseCount: number;
+};
+
 export type CustomerSessionStatus = "active" | "resolved" | "failed";
 
 export interface CustomerSession {
@@ -162,6 +186,14 @@ export interface DaySummary {
   supervisorComment: string;
   totals: Metrics;
   outcomes: CustomerOutcome[];
+  diagnostics: SummaryDiagnostic[];
+}
+
+export interface SummaryDiagnostic {
+  id: string;
+  title: string;
+  body: string;
+  tone: "good" | "warning" | "risk" | "tip";
 }
 
 export interface GameState {
@@ -176,6 +208,7 @@ export interface GameState {
   outcomes: CustomerOutcome[];
   achievements: AchievementId[];
   achievementStats: AchievementStats;
+  coachingStats: CoachingStats;
   triggeredEventIds: string[];
   summary?: DaySummary;
 }
