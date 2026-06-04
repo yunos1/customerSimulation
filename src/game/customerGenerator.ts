@@ -1,4 +1,12 @@
-import type { Customer, CustomerRound, CustomerType, Metrics, ToneTag } from "./types";
+import { defaultCustomerCount } from "./balance";
+import type {
+  Customer,
+  CustomerRound,
+  CustomerType,
+  DayGenerationConfig,
+  Metrics,
+  ToneTag,
+} from "./types";
 
 type RoundTemplate = {
   id: string;
@@ -24,7 +32,7 @@ type ScenarioTemplate = {
   rounds: RoundTemplate[];
 };
 
-const shiftCustomerCount = 6;
+const shiftCustomerCount = defaultCustomerCount;
 
 const scenarios: ScenarioTemplate[] = [
   {
@@ -554,24 +562,68 @@ const scenarios: ScenarioTemplate[] = [
   },
 ];
 
-export function buildRandomizedCustomers(baseCustomers: Customer[], seed: number) {
+export function buildRandomizedCustomers(
+  baseCustomers: Customer[],
+  seed: number,
+  generation: DayGenerationConfig = { customerCount: shiftCustomerCount },
+) {
   const rng = createRng(seed);
-  const selectedScenarios = buildShiftScenarios(rng);
+  const selectedScenarios = buildShiftScenarios(rng, generation);
   const generatedCustomers = selectedScenarios.map((scenario, index) =>
-    buildCustomer(scenario, rng, seed, index),
+    buildCustomer(scenario, rng, seed, index, generation.metricOffsets),
   );
 
   return generatedCustomers.length > 0 ? generatedCustomers : baseCustomers;
 }
 
-function buildShiftScenarios(rng: () => number) {
-  const selectedScenarios = shuffle(scenarios, rng).slice(0, shiftCustomerCount);
+function buildShiftScenarios(rng: () => number, generation: DayGenerationConfig) {
+  const count = generation.customerCount;
+  const pool =
+    generation.scenarioPool && generation.scenarioPool.length > 0
+      ? scenarios.filter((scenario) => generation.scenarioPool?.includes(scenario.id))
+      : scenarios;
+  const effectivePool = pool.length > 0 ? pool : scenarios;
 
-  while (selectedScenarios.length < shiftCustomerCount) {
-    selectedScenarios.push(pick(scenarios, rng));
+  // 无权重时保持原行为：shuffle 后取前 count，再按需补足。
+  // 这条默认路径的 RNG 调用序列与重构前完全一致，确保 Phase 0 快照不变。
+  if (!generation.typeWeights) {
+    const selectedScenarios = shuffle(effectivePool, rng).slice(0, count);
+
+    while (selectedScenarios.length < count) {
+      selectedScenarios.push(pick(effectivePool, rng));
+    }
+
+    return selectedScenarios;
+  }
+
+  // 有权重时按权重抽样（偏向更难类型）。
+  const selectedScenarios: ScenarioTemplate[] = [];
+
+  while (selectedScenarios.length < count) {
+    selectedScenarios.push(pickWeighted(effectivePool, rng, generation.typeWeights));
   }
 
   return selectedScenarios;
+}
+
+function pickWeighted(
+  items: ScenarioTemplate[],
+  rng: () => number,
+  typeWeights: NonNullable<DayGenerationConfig["typeWeights"]>,
+) {
+  const weights = items.map((scenario) => typeWeights[scenario.type] ?? 1);
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let threshold = rng() * total;
+
+  for (let index = 0; index < items.length; index += 1) {
+    threshold -= weights[index];
+
+    if (threshold <= 0) {
+      return items[index];
+    }
+  }
+
+  return items[items.length - 1];
 }
 
 function buildCustomer(
@@ -579,6 +631,7 @@ function buildCustomer(
   rng: () => number,
   seed: number,
   index: number,
+  metricOffsets?: DayGenerationConfig["metricOffsets"],
 ): Customer {
   const name = pick(scenario.names, rng);
   const issue = pick(scenario.issues, rng);
@@ -601,9 +654,14 @@ function buildCustomer(
     type: scenario.type,
     issue,
     opening: pick(scenario.openings, rng),
+    // metricOffsets 在 randomInt 之后叠加，不引入新的 RNG 调用，故默认路径序列不变。
     initialMetrics: {
-      satisfaction: clampMetric(scenario.initialMetrics.satisfaction + randomInt(rng, -8, 8)),
-      anger: clampMetric(scenario.initialMetrics.anger + randomInt(rng, -8, 8)),
+      satisfaction: clampMetric(
+        scenario.initialMetrics.satisfaction + randomInt(rng, -8, 8) + (metricOffsets?.satisfaction ?? 0),
+      ),
+      anger: clampMetric(
+        scenario.initialMetrics.anger + randomInt(rng, -8, 8) + (metricOffsets?.anger ?? 0),
+      ),
     },
     patience: clampMetric(scenario.patience + randomInt(rng, -10, 10)),
     profileNotes: sample(scenario.profileNotes, 3, rng),

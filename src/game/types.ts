@@ -19,6 +19,7 @@ export type ToneTag =
   | "pushback";
 
 export type GamePhase =
+  | "career_map"
   | "intro"
   | "player_reply"
   | "summary";
@@ -44,6 +45,22 @@ export interface ReplyCard {
   tags: ToneTag[];
   effects: MetricDelta;
   cooldown?: number;
+}
+
+// 解锁条件：从 meta 的记录 / 成就推导某张高级回复卡是否可用。
+// 全部是「达到阈值即解锁」的单调条件，保证解锁不可逆（符合元进度直觉）。
+export type UnlockCondition =
+  | { kind: "totalResolved"; count: number }
+  | { kind: "totalRuns"; count: number }
+  | { kind: "bestSatisfaction"; value: number }
+  | { kind: "achievement"; id: AchievementId };
+
+// 可解锁的高级回复卡：基础牌之外、靠里程碑赚到的额外工具。
+export interface UnlockableCard {
+  card: ReplyCard;
+  condition: UnlockCondition;
+  /** 解锁条件的人类可读描述，用于解锁 toast 展示。 */
+  hint: string;
 }
 
 export interface CustomerRound {
@@ -91,6 +108,42 @@ export interface LevelConfig {
   briefing: string;
   baseMetrics: Metrics;
   customers: Customer[];
+  replyCards: ReplyCard[];
+  policies: PolicyEntry[];
+  possibleEvents: RandomEvent[];
+  // 可选的客户生成配置。缺省时生成器走默认数量与全场景池（保持旧行为）。
+  generation?: DayGenerationConfig;
+}
+
+export type Grade = "S" | "A" | "B" | "C" | "D";
+
+// 单天客户生成参数：替代 customerGenerator 中硬编码的数量与固定场景池，
+// 让职业模式的不同天数可以差异化难度。
+export interface DayGenerationConfig {
+  /** 本天客户数，替代默认的 defaultCustomerCount。 */
+  customerCount: number;
+  /** 场景选择权重，偏向更难的客户类型（如 policy_checker / passive_aggressive）。 */
+  typeWeights?: Partial<Record<CustomerType, number>>;
+  /** 可选的场景 id 子集；缺省用全部场景。 */
+  scenarioPool?: string[];
+  /** 对每位客户初始指标的额外偏移（让后续天数更难安抚）。 */
+  metricOffsets?: Partial<Pick<Metrics, "satisfaction" | "anger">>;
+}
+
+// 职业模式中的「一天」。通过 buildLevelConfig 适配成引擎消费的 LevelConfig。
+export interface CareerDay {
+  id: string;
+  title: string;
+  briefing: string;
+  baseMetrics: Metrics;
+  generation: DayGenerationConfig;
+  /** 过关所需最低评级。 */
+  passGrade: Grade;
+}
+
+// 整条职业线。replyCards / policies / possibleEvents 跨天共享。
+export interface CareerConfig {
+  days: CareerDay[];
   replyCards: ReplyCard[];
   policies: PolicyEntry[];
   possibleEvents: RandomEvent[];
@@ -192,7 +245,7 @@ export interface CustomerSession {
 }
 
 export interface DaySummary {
-  grade: "S" | "A" | "B" | "C" | "D";
+  grade: Grade;
   title: string;
   supervisorComment: string;
   totals: Metrics;
@@ -229,10 +282,11 @@ export interface GameState {
 }
 
 export type GameAction =
+  | { type: "LOAD_DAY"; level: LevelConfig; seed: number }
   | { type: "START_DAY"; seed: number }
   | { type: "TICK"; seed: number }
   | { type: "SELECT_SESSION"; sessionId: string }
   | { type: "OPEN_TIMEOUT_ALERT"; sessionId: string }
   | { type: "CHOOSE_REPLY"; cardId: string }
   | { type: "SUBMIT_FREE_REPLY"; text: string }
-  | { type: "RESTART_DAY"; seed: number };
+  | { type: "RESTART_DAY"; level: LevelConfig; seed: number };

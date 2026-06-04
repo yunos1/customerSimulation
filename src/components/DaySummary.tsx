@@ -1,20 +1,36 @@
-import { AlertTriangle, BadgeCheck, Lightbulb, RotateCcw, Trophy } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgeCheck, Lightbulb, Map, RotateCcw, Trophy } from "lucide-react";
 import { memo } from "react";
-import type { DaySummary as DaySummaryType } from "../game/types";
+import type { DaySummary as DaySummaryType, Grade } from "../game/types";
 
 interface DaySummaryProps {
   summary?: DaySummaryType;
-  onRestart: () => void;
+  /** 本天过关所需最低评级。 */
+  passGrade?: Grade;
+  /** 是否达到过关线。 */
+  passed?: boolean;
+  /** 是否还有下一天可推进。 */
+  hasNextDay?: boolean;
+  onAdvance: () => void;
+  onRetry: () => void;
+  onBackToMap: () => void;
 }
 
-export const DaySummary = memo(function DaySummary({ summary, onRestart }: DaySummaryProps) {
+export const DaySummary = memo(function DaySummary({
+  summary,
+  passGrade,
+  passed = false,
+  hasNextDay = false,
+  onAdvance,
+  onRetry,
+  onBackToMap,
+}: DaySummaryProps) {
   if (!summary) {
     return null;
   }
 
   return (
     <section className="summary-panel">
-      <div className="summary-grade">
+      <div className={`summary-grade ${passed ? "summary-grade-pass" : "summary-grade-fail"}`}>
         <Trophy size={22} aria-hidden="true" />
         <span>{summary.grade}</span>
       </div>
@@ -22,6 +38,13 @@ export const DaySummary = memo(function DaySummary({ summary, onRestart }: DaySu
         <p className="eyebrow">今日评级</p>
         <h2>{summary.title}</h2>
         <p className="summary-comment">{summary.supervisorComment}</p>
+        {passGrade ? (
+          <p className={`summary-verdict ${passed ? "summary-verdict-pass" : "summary-verdict-fail"}`}>
+            {passed
+              ? `达到过关线（${passGrade}），${hasNextDay ? "可以进入下一天。" : "你已完成转正考核！"}`
+              : `未达过关线（需 ${passGrade}）。再试一次，调整出牌顺序。`}
+          </p>
+        ) : null}
       </div>
 
       <dl className="summary-metrics">
@@ -70,10 +93,22 @@ export const DaySummary = memo(function DaySummary({ summary, onRestart }: DaySu
         })}
       </div>
 
-      <button className="primary-button" type="button" onClick={onRestart}>
-        <RotateCcw size={17} aria-hidden="true" />
-        重新值班
-      </button>
+      <div className="summary-actions">
+        {passed && hasNextDay ? (
+          <button className="primary-button" type="button" onClick={onAdvance}>
+            <ArrowRight size={17} aria-hidden="true" />
+            进入下一天
+          </button>
+        ) : null}
+        <button className="secondary-button" type="button" onClick={onRetry}>
+          <RotateCcw size={17} aria-hidden="true" />
+          {passed ? "再来一次" : "重试本天"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onBackToMap}>
+          <Map size={17} aria-hidden="true" />
+          返回职业地图
+        </button>
+      </div>
     </section>
   );
 });

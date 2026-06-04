@@ -1,22 +1,6 @@
-import { customers } from "./customers";
-import { possibleEvents } from "./events";
-import { policies } from "./policies";
-import { replyCards } from "./replyCards";
+import { buildLevelConfig, career } from "./career";
 import type { LevelConfig } from "../game/types";
 
-export const activeDay: LevelConfig = {
-  id: "internship-day-01",
-  title: "实习第 1 天",
-  briefing: "你被分配到售后接待席位。目标是稳住客户，也别把公司预算当灭火器。",
-  baseMetrics: {
-    satisfaction: 50,
-    anger: 50,
-    companyCost: 0,
-    complianceRisk: 10,
-    timeLeft: 160,
-  },
-  customers,
-  replyCards,
-  policies,
-  possibleEvents,
-};
+// activeDay 现在是职业线第一天的 LevelConfig 别名，保持对旧引用（如测试、初始加载）的兼容。
+// 多关卡逻辑统一走 career.ts。
+export const activeDay: LevelConfig = buildLevelConfig(career.days[0]);

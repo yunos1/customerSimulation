@@ -1,5 +1,5 @@
-import { activeDay } from "../content/levels";
 import { getUnlockedAchievements } from "../content/achievements";
+import { sessionTiming } from "./balance";
 import { buildRandomizedCustomers } from "./customerGenerator";
 import { buildFreeReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
@@ -26,11 +26,11 @@ import type {
   ReplyCard,
 } from "./types";
 
-const timeoutAlertSeconds = 120;
-const maxOpenSessions = 3;
-const minArrivalDelay = 18;
-const maxArrivalDelay = 35;
-const randomEventChance = 20;
+const timeoutAlertSeconds = sessionTiming.timeoutAlertSeconds;
+const maxOpenSessions = sessionTiming.maxOpenSessions;
+const minArrivalDelay = sessionTiming.minArrivalDelay;
+const maxArrivalDelay = sessionTiming.maxArrivalDelay;
+const randomEventChance = sessionTiming.randomEventChance;
 
 let messageCounter = 0;
 let sessionCounter = 0;
@@ -42,7 +42,7 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
 
   const randomizedLevel = {
     ...level,
-    customers: buildRandomizedCustomers(level.customers, seed),
+    customers: buildRandomizedCustomers(level.customers, seed, level.generation),
   };
 
   return {
@@ -119,6 +119,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
 function runReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
+    case "LOAD_DAY":
+      // 进入/切换到某一天：用该天的 level 重建初始 state（intro 阶段）。
+      return createInitialState(action.level, action.seed);
+
     case "START_DAY":
       return startDay(state, action.seed);
 
@@ -138,8 +142,9 @@ function runReducer(state: GameState, action: GameAction): GameState {
       return submitFreeReply(state, action.text);
 
     case "RESTART_DAY":
+      // 重试当前天：由调用方传入要重置到的 level（不再硬编码 activeDay）。
       // createInitialState 内部会重置 scratch 计数器。
-      return createInitialState(activeDay, action.seed);
+      return createInitialState(action.level, action.seed);
 
     default:
       return state;

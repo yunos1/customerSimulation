@@ -1,3 +1,4 @@
+import { resolveThresholds } from "./balance";
 import type { Customer, CustomerRound } from "./types";
 
 export function getActiveRound(customer: Customer, roundIndex: number): CustomerRound {
@@ -11,5 +12,10 @@ export function shouldResolveCustomer(
   satisfaction: number,
   anger: number,
 ) {
-  return round.resolveAfter || nextRoundIndex >= customer.rounds.length || satisfaction >= 88 || anger <= 8;
+  return (
+    round.resolveAfter ||
+    nextRoundIndex >= customer.rounds.length ||
+    satisfaction >= resolveThresholds.satisfaction ||
+    anger <= resolveThresholds.anger
+  );
 }

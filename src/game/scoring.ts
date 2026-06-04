@@ -1,3 +1,8 @@
+import {
+  daySummaryScoring,
+  gradeThresholds,
+  replyScoring,
+} from "./balance";
 import type {
   Customer,
   CustomerOutcome,
@@ -80,32 +85,36 @@ export function scoreReply(
   const delta: MetricDelta = {
     satisfaction:
       (card.effects.satisfaction ?? 0) +
-      preferredHits * 8 -
-      riskyHits * 7 +
+      preferredHits * replyScoring.preferredSatisfactionPerHit -
+      riskyHits * replyScoring.riskySatisfactionPerHit +
       customerModifier.satisfaction +
       (sequenceModifier.delta.satisfaction ?? 0),
     anger:
       (card.effects.anger ?? 0) -
-      preferredHits * 7 +
-      riskyHits * 10 +
+      preferredHits * replyScoring.preferredAngerPerHit +
+      riskyHits * replyScoring.riskyAngerPerHit +
       customerModifier.anger +
       (sequenceModifier.delta.anger ?? 0),
     companyCost: (card.effects.companyCost ?? 0) + (sequenceModifier.delta.companyCost ?? 0),
     complianceRisk:
       (card.effects.complianceRisk ?? 0) +
-      riskyHits * 4 +
+      riskyHits * replyScoring.riskyCompliancePerHit +
       customerModifier.complianceRisk +
       (sequenceModifier.delta.complianceRisk ?? 0),
     timeLeft: (card.effects.timeLeft ?? 0) + (sequenceModifier.delta.timeLeft ?? 0),
   };
 
   const reactionScore =
-    preferredHits * 2 -
-    riskyHits +
+    preferredHits * replyScoring.reactionPreferredWeight -
+    riskyHits * replyScoring.reactionRiskyWeight +
     customerModifier.reactionBias +
     sequenceModifier.reactionBias;
   const reactionKind: ReplyReactionKind =
-    reactionScore >= 2 ? "success" : reactionScore <= -1 ? "failure" : "neutral";
+    reactionScore >= replyScoring.reactionSuccessAt
+      ? "success"
+      : reactionScore <= replyScoring.reactionFailureAt
+        ? "failure"
+        : "neutral";
   const feedback = buildReplyFeedback(
     card,
     round,
@@ -205,14 +214,24 @@ export function buildDaySummary(
   // 系数从 0.15 降到 0.06，让「省精力 = 高效」成为适度加分而非主导项，
   // 避免平庸表现靠剩余时间刷高评级。等级阈值维持不变。
   const score =
-    avgSatisfaction * 0.45 +
-    metrics.timeLeft * 0.06 -
-    metrics.companyCost * 0.18 -
-    metrics.complianceRisk * 0.32 -
-    complaints * 12;
+    avgSatisfaction * daySummaryScoring.satisfactionWeight +
+    metrics.timeLeft * daySummaryScoring.timeLeftWeight -
+    metrics.companyCost * daySummaryScoring.companyCostWeight -
+    metrics.complianceRisk * daySummaryScoring.complianceRiskWeight -
+    complaints * daySummaryScoring.complaintPenalty;
 
   const grade =
-    rageQuits > 0 ? "D" : score >= 72 ? "S" : score >= 58 ? "A" : score >= 42 ? "B" : score >= 26 ? "C" : "D";
+    rageQuits > 0
+      ? "D"
+      : score >= gradeThresholds.S
+        ? "S"
+        : score >= gradeThresholds.A
+          ? "A"
+          : score >= gradeThresholds.B
+            ? "B"
+            : score >= gradeThresholds.C
+              ? "C"
+              : "D";
 
   const comments: Record<DaySummary["grade"], string> = {
     S: "你今天像把灭火器和合同条款装进了同一个脑子里。",
