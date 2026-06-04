@@ -13,7 +13,7 @@ export const activeDay: LevelConfig = {
     anger: 50,
     companyCost: 0,
     complianceRisk: 10,
-    timeLeft: 100,
+    timeLeft: 160,
   },
   customers,
   replyCards,

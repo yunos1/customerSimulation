@@ -1,11 +1,13 @@
 import { BookOpen, Tag } from "lucide-react";
+import { memo } from "react";
 import type { PolicyEntry } from "../game/types";
 
 interface KnowledgeBaseProps {
   policies: PolicyEntry[];
 }
 
-export function KnowledgeBase({ policies }: KnowledgeBaseProps) {
+// 政策数据在一局内恒定，memo 让它跳过每秒 tick 引发的重渲染。
+export const KnowledgeBase = memo(function KnowledgeBase({ policies }: KnowledgeBaseProps) {
   return (
     <section className="panel compact-panel knowledge-panel">
       <div className="panel-header">
@@ -35,4 +37,4 @@ export function KnowledgeBase({ policies }: KnowledgeBaseProps) {
       </div>
     </section>
   );
-}
+});

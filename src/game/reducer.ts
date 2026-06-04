@@ -36,6 +36,10 @@ let messageCounter = 0;
 let sessionCounter = 0;
 
 export function createInitialState(level: LevelConfig, seed = Date.now()): GameState {
+  // 重置 scratch 计数器；下面的 createMessage 会推进 messageCounter。
+  messageCounter = 0;
+  sessionCounter = 0;
+
   const randomizedLevel = {
     ...level,
     customers: buildRandomizedCustomers(level.customers, seed),
@@ -87,10 +91,33 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
       pushbackUseCount: 0,
       freeReplyUseCount: 0,
     },
+    // 写回 scratch 计数器的当前值（上面 shiftMessages 已推进了 messageCounter）。
+    messageCounter,
+    sessionCounter,
   };
 }
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
+  // 把 state 里的计数器同步到模块级 scratch 变量，内部各 createMessage/createSession
+  // 照常推进它们；出口再写回结果。这样 reducer 对外是纯函数：同一 (state, action)
+  // 永远得到同一结果，StrictMode 双调用也不会让 id / seed 漂移。
+  messageCounter = state.messageCounter;
+  sessionCounter = state.sessionCounter;
+
+  const nextState = runReducer(state, action);
+
+  if (nextState === state) {
+    return state;
+  }
+
+  return {
+    ...nextState,
+    messageCounter,
+    sessionCounter,
+  };
+}
+
+function runReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case "START_DAY":
       return startDay(state, action.seed);
@@ -111,8 +138,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return submitFreeReply(state, action.text);
 
     case "RESTART_DAY":
-      messageCounter = 0;
-      sessionCounter = 0;
+      // createInitialState 内部会重置 scratch 计数器。
       return createInitialState(activeDay, action.seed);
 
     default:
@@ -147,7 +173,9 @@ function tick(state: GameState, seed: number): GameState {
     return state;
   }
 
-  const metricsAfterClock = applyShiftDelta(state.metrics, { timeLeft: -1 });
+  // timeLeft 不再随每秒时钟流逝，改为纯粹的「处理精力」——只被玩家的回复动作消耗。
+  // 这样玩家可以从容读客户、想策略，而不是被秒表追着提前下班。
+  // 「等待 2 分钟红色提醒」基于真实 elapsedSeconds，独立保留，仍鼓励多线切换。
   const nextSessions = state.sessions.map((session): CustomerSession => {
     if (session.status !== "active") {
       return session;
@@ -169,9 +197,11 @@ function tick(state: GameState, seed: number): GameState {
 
   const nextState: GameState = {
     ...state,
-    metrics: metricsAfterClock,
     sessions: nextSessions,
-    activeSessionId: getPreferredSessionId(nextSessions, state.activeSessionId),
+    // 时钟 tick 不改变 metrics（timeLeft 已改为仅由回复消耗），也不改变会话状态，
+    // 保留玩家手动选择的会话，避免每秒被弹回活跃会话。
+    // 会话结束/新客户接入时由各自路径重新计算 activeSessionId。
+    activeSessionId: state.activeSessionId,
     achievementStats:
       newTimeoutAlertCount > 0
         ? {
@@ -212,9 +242,7 @@ function tick(state: GameState, seed: number): GameState {
     };
   }
 
-  return {
-    ...nextStateWithAchievements,
-  };
+  return nextStateWithAchievements;
 }
 
 function selectSession(state: GameState, sessionId: string): GameState {
@@ -798,11 +826,10 @@ function refreshAchievements(state: GameState): GameState {
     (achievementId) => !state.achievements.includes(achievementId),
   );
 
+  // 没有新解锁时 nextAchievements 与 state.achievements 内容相同（解锁集合只增不减），
+  // 直接返回原 state 以保持引用稳定，避免每秒 tick 都生成新数组拖累下游记忆化。
   if (newlyUnlockedAchievements.length === 0) {
-    return {
-      ...state,
-      achievements: nextAchievements,
-    };
+    return state;
   }
 
   return {

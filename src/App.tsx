@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { activeDay } from "./content/levels";
 import { createInitialState, gameReducer, getActiveSession } from "./game/reducer";
 import { ChatPanel } from "./components/ChatPanel";
@@ -56,10 +56,22 @@ export default function App() {
     return () => window.cancelAnimationFrame(frameId);
   }, [activeSession?.id, scrollTargetSessionId]);
 
-  const openTimeoutSession = (sessionId: string) => {
+  const openTimeoutSession = useCallback((sessionId: string) => {
     setScrollTargetSessionId(sessionId);
     dispatch({ type: "OPEN_TIMEOUT_ALERT", sessionId });
-  };
+  }, []);
+
+  const handleStart = useCallback(() => dispatch({ type: "START_DAY", seed: Date.now() }), []);
+  const handleSelectSession = useCallback(
+    (sessionId: string) => dispatch({ type: "SELECT_SESSION", sessionId }),
+    [],
+  );
+  const handleChoose = useCallback((cardId: string) => dispatch({ type: "CHOOSE_REPLY", cardId }), []);
+  const handleSubmitFreeReply = useCallback(
+    (text: string) => dispatch({ type: "SUBMIT_FREE_REPLY", text }),
+    [],
+  );
+  const handleRestart = useCallback(() => dispatch({ type: "RESTART_DAY", seed: Date.now() }), []);
 
   return (
     <Layout
@@ -70,8 +82,8 @@ export default function App() {
           sessions={state.sessions}
           shiftMessages={state.shiftMessages}
           phase={state.phase}
-          onStart={() => dispatch({ type: "START_DAY", seed: Date.now() })}
-          onSelectSession={(sessionId) => dispatch({ type: "SELECT_SESSION", sessionId })}
+          onStart={handleStart}
+          onSelectSession={handleSelectSession}
         />
       }
       status={
@@ -89,13 +101,13 @@ export default function App() {
       knowledge={<KnowledgeBase policies={activeDay.policies} />}
       replies={
         state.phase === "summary" ? (
-          <DaySummary summary={state.summary} onRestart={() => dispatch({ type: "RESTART_DAY", seed: Date.now() })} />
+          <DaySummary summary={state.summary} onRestart={handleRestart} />
         ) : (
           <ReplyDeck
             cards={activeDay.replyCards}
             disabled={state.phase !== "player_reply" || activeSession?.status !== "active"}
-            onChoose={(cardId) => dispatch({ type: "CHOOSE_REPLY", cardId })}
-            onSubmitFreeReply={(text) => dispatch({ type: "SUBMIT_FREE_REPLY", text })}
+            onChoose={handleChoose}
+            onSubmitFreeReply={handleSubmitFreeReply}
           />
         )
       }

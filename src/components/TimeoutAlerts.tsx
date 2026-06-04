@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { memo } from "react";
 import { CustomerAvatar } from "./Avatar";
 import type { CustomerSession } from "../game/types";
 
@@ -7,7 +8,7 @@ interface TimeoutAlertsProps {
   onOpenSession: (sessionId: string) => void;
 }
 
-export function TimeoutAlerts({ sessions, onOpenSession }: TimeoutAlertsProps) {
+export const TimeoutAlerts = memo(function TimeoutAlerts({ sessions, onOpenSession }: TimeoutAlertsProps) {
   const alertSessions = sessions.filter(
     (session) =>
       session.status === "active" &&
@@ -43,7 +44,7 @@ export function TimeoutAlerts({ sessions, onOpenSession }: TimeoutAlertsProps) {
       ))}
     </div>
   );
-}
+});
 
 function getLastCustomerMessage(session: CustomerSession) {
   return (

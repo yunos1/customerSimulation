@@ -222,6 +222,10 @@ export interface GameState {
   coachingStats: CoachingStats;
   triggeredEventIds: string[];
   summary?: DaySummary;
+  // 消息与会话 id 计数器。放进 state 而非模块级可变变量，
+  // 让 reducer 保持纯函数：在 StrictMode 双调用下结果可重现。
+  messageCounter: number;
+  sessionCounter: number;
 }
 
 export type GameAction =

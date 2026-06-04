@@ -1,4 +1,5 @@
 import { AlertTriangle, BadgeCheck, Clock, Coins, Flame } from "lucide-react";
+import { memo } from "react";
 import type { GamePhase, Metrics } from "../game/types";
 
 interface MetricsBarProps {
@@ -39,7 +40,7 @@ const metricItems = [
   },
 ] as const;
 
-export function MetricsBar({ metrics, phase }: MetricsBarProps) {
+export const MetricsBar = memo(function MetricsBar({ metrics, phase }: MetricsBarProps) {
   return (
     <section className="metrics-bar" aria-label="今日指标">
       {metricItems.map((item) => {
@@ -69,7 +70,7 @@ export function MetricsBar({ metrics, phase }: MetricsBarProps) {
       </div>
     </section>
   );
-}
+});
 
 function getMeterWidth(key: keyof Metrics, value: number) {
   if (key === "companyCost") {
@@ -77,7 +78,7 @@ function getMeterWidth(key: keyof Metrics, value: number) {
   }
 
   if (key === "timeLeft") {
-    return Math.min(100, Math.round((value / 100) * 100));
+    return Math.min(100, Math.round((value / 180) * 100));
   }
 
   return value;

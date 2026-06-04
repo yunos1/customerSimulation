@@ -1,4 +1,5 @@
 import { ClipboardList, TimerReset } from "lucide-react";
+import { memo } from "react";
 import { CustomerAvatar } from "./Avatar";
 import type { Customer, CustomerOutcome, CustomerSession } from "../game/types";
 
@@ -7,7 +8,7 @@ interface CustomerStatusProps {
   session?: CustomerSession;
 }
 
-export function CustomerStatus({ customer, session }: CustomerStatusProps) {
+export const CustomerStatus = memo(function CustomerStatus({ customer, session }: CustomerStatusProps) {
   if (!customer || !session) {
     return (
       <section className="panel compact-panel">
@@ -80,7 +81,7 @@ export function CustomerStatus({ customer, session }: CustomerStatusProps) {
       ) : null}
     </section>
   );
-}
+});
 
 function getSessionLine(session: CustomerSession) {
   if (session.status === "resolved") {

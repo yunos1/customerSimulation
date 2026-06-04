@@ -1,4 +1,5 @@
 import { Clock, MessageSquareText, Play } from "lucide-react";
+import { memo } from "react";
 import { AgentAvatar, CustomerAvatar } from "./Avatar";
 import type { ChatMessage, CustomerSession, GamePhase } from "../game/types";
 
@@ -11,7 +12,7 @@ interface ChatPanelProps {
   onSelectSession: (sessionId: string) => void;
 }
 
-export function ChatPanel({
+export const ChatPanel = memo(function ChatPanel({
   activeSession,
   sessions,
   shiftMessages,
@@ -89,7 +90,7 @@ export function ChatPanel({
       </div>
     </section>
   );
-}
+});
 
 function getSpeakerLabel(speaker: ChatMessage["speaker"]) {
   if (speaker === "customer") {

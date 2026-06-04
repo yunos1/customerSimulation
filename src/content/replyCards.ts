@@ -48,7 +48,7 @@ export const replyCards: ReplyCard[] = [
       satisfaction: 9,
       anger: -9,
       complianceRisk: -4,
-      timeLeft: -12,
+      timeLeft: -10,
     },
   },
   {
@@ -112,7 +112,7 @@ export const replyCards: ReplyCard[] = [
       satisfaction: 6,
       anger: -10,
       complianceRisk: -16,
-      timeLeft: -18,
+      timeLeft: -12,
     },
   },
   {

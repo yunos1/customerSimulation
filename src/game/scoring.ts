@@ -19,7 +19,7 @@ const metricBounds: Record<keyof Metrics, [number, number]> = {
   anger: [0, 100],
   companyCost: [0, 999],
   complianceRisk: [0, 100],
-  timeLeft: [0, 120],
+  timeLeft: [0, 180],
 };
 
 export function clampMetric(metric: keyof Metrics, value: number) {
@@ -78,7 +78,6 @@ export function scoreReply(
   const sequenceModifier = getSequenceModifier(card, context);
 
   const delta: MetricDelta = {
-    ...card.effects,
     satisfaction:
       (card.effects.satisfaction ?? 0) +
       preferredHits * 8 -
@@ -202,9 +201,12 @@ export function buildDaySummary(
     anger: Math.round(avgAnger),
   };
 
+  // timeLeft 现在是「处理精力」，结束时通常还剩较多（不再被时钟耗光），
+  // 系数从 0.15 降到 0.06，让「省精力 = 高效」成为适度加分而非主导项，
+  // 避免平庸表现靠剩余时间刷高评级。等级阈值维持不变。
   const score =
     avgSatisfaction * 0.45 +
-    metrics.timeLeft * 0.15 -
+    metrics.timeLeft * 0.06 -
     metrics.companyCost * 0.18 -
     metrics.complianceRisk * 0.32 -
     complaints * 12;
@@ -254,10 +256,6 @@ function getTagOverlap(source: ToneTag[], target: ToneTag[]) {
   const targetSet = new Set(target);
 
   return source.filter((tag) => targetSet.has(tag));
-}
-
-function countTagOverlap(source: ToneTag[], target: ToneTag[]) {
-  return getTagOverlap(source, target).length;
 }
 
 function pickMeaningfulMetricChanges(delta: MetricDelta): MetricDelta {

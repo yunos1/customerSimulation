@@ -10,7 +10,7 @@ import {
   UserCheck,
   SendHorizontal,
 } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, memo, useState } from "react";
 import type { ReplyCard } from "../game/types";
 
 interface ReplyDeckProps {
@@ -34,7 +34,12 @@ const iconMap = {
   pushback: Siren,
 } as const;
 
-export function ReplyDeck({ cards, disabled, onChoose, onSubmitFreeReply }: ReplyDeckProps) {
+export const ReplyDeck = memo(function ReplyDeck({
+  cards,
+  disabled,
+  onChoose,
+  onSubmitFreeReply,
+}: ReplyDeckProps) {
   const [freeReply, setFreeReply] = useState("");
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -98,4 +103,4 @@ export function ReplyDeck({ cards, disabled, onChoose, onSubmitFreeReply }: Repl
       </div>
     </div>
   );
-}
+});

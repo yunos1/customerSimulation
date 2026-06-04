@@ -1,4 +1,5 @@
 import { Award, LockKeyhole } from "lucide-react";
+import { memo } from "react";
 import { achievements } from "../content/achievements";
 import type { AchievementId, AchievementStats } from "../game/types";
 
@@ -7,7 +8,10 @@ interface AchievementsPanelProps {
   stats: AchievementStats;
 }
 
-export function AchievementsPanel({ unlockedIds, stats }: AchievementsPanelProps) {
+export const AchievementsPanel = memo(function AchievementsPanel({
+  unlockedIds,
+  stats,
+}: AchievementsPanelProps) {
   const unlockedSet = new Set(unlockedIds);
 
   return (
@@ -53,4 +57,4 @@ export function AchievementsPanel({ unlockedIds, stats }: AchievementsPanelProps
       </div>
     </section>
   );
-}
+});

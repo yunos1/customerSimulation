@@ -1,4 +1,5 @@
 import { AlertTriangle, BadgeCheck, Lightbulb, RotateCcw, Trophy } from "lucide-react";
+import { memo } from "react";
 import type { DaySummary as DaySummaryType } from "../game/types";
 
 interface DaySummaryProps {
@@ -6,7 +7,7 @@ interface DaySummaryProps {
   onRestart: () => void;
 }
 
-export function DaySummary({ summary, onRestart }: DaySummaryProps) {
+export const DaySummary = memo(function DaySummary({ summary, onRestart }: DaySummaryProps) {
   if (!summary) {
     return null;
   }
@@ -75,7 +76,7 @@ export function DaySummary({ summary, onRestart }: DaySummaryProps) {
       </button>
     </section>
   );
-}
+});
 
 function getOutcomeLabel(status: DaySummaryType["outcomes"][number]["status"]) {
   if (status === "resolved") {

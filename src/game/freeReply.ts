@@ -46,13 +46,22 @@ export function buildFreeReplyCard(text: string): ReplyCard {
   const tags = detectToneTags(text);
 
   return {
-    id: `free-${Date.now()}`,
+    // 基于文本内容的确定性 id（不用 Date.now()）：保证 reducer 纯函数特性，
+    // StrictMode 双调用与重放都能得到一致的 reaction seed。前缀 free- 确保不与
+    // reactions.ts 中的具名 cardId 规则相撞，自由回复只走 tag 规则。
+    id: `free-${hashText(text)}`,
     title: text,
     shortLabel: "自定义",
     description: "自由输入回复",
     tags,
     effects: buildEffects(tags),
   };
+}
+
+function hashText(text: string): number {
+  return Array.from(text).reduce((hash, char) => {
+    return (hash * 31 + char.charCodeAt(0)) % 1000000007;
+  }, 7);
 }
 
 function detectToneTags(text: string): ToneTag[] {
