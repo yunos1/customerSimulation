@@ -277,11 +277,16 @@
   margin-bottom: 14px;
 }
 
+.hub-library-heading .hub-kicker {
+  color: #08796f;
+}
+
 .hub-library-heading h2 {
   margin: 0;
-  color: #f5fffb;
+  color: #12393d;
   font-size: 28px;
   line-height: 1.1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.62);
 }
 
 .simulator-grid {
@@ -295,13 +300,16 @@
   display: grid;
   min-height: 320px;
   overflow: hidden;
-  border: 1px solid rgba(236, 255, 251, 0.12);
+  border: 1px solid rgba(125, 245, 231, 0.2);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
-    rgba(5, 23, 27, 0.76);
+    linear-gradient(180deg, rgba(32, 61, 62, 0.98), rgba(18, 43, 45, 0.98)),
+    #122b2d;
   padding: 16px;
-  box-shadow: 0 22px 52px rgba(3, 12, 14, 0.34);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 22px 52px rgba(3, 12, 14, 0.28);
+  isolation: isolate;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
@@ -313,11 +321,19 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.12) 48%, transparent 62%),
-    linear-gradient(165deg, rgba(125, 245, 231, 0.15) 0%, transparent 34%);
+    linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.06) 48%, transparent 62%),
+    linear-gradient(165deg, rgba(125, 245, 231, 0.08) 0%, transparent 34%);
   content: "";
-  opacity: 0.68;
+  opacity: 0.34;
   transform: translateX(-24%);
+}
+
+.simulator-card::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
 }
 
 .simulator-card-live:hover {
@@ -363,11 +379,11 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid rgba(236, 255, 251, 0.14);
+  border: 1px solid rgba(236, 255, 251, 0.24);
   border-radius: 999px;
-  background: rgba(236, 255, 251, 0.08);
+  background: rgba(236, 255, 251, 0.12);
   padding: 5px 8px;
-  color: rgba(236, 255, 251, 0.78);
+  color: rgba(245, 255, 252, 0.92);
   font-size: 12px;
   font-weight: 900;
 }
@@ -378,7 +394,7 @@
 
 .simulator-card-copy p {
   margin: 0 0 7px;
-  color: rgba(125, 245, 231, 0.82);
+  color: #7df5e7;
   font-size: 12px;
   font-weight: 900;
 }
@@ -393,7 +409,7 @@
 .simulator-card-copy span {
   display: block;
   margin-top: 12px;
-  color: rgba(220, 246, 242, 0.76);
+  color: rgba(235, 250, 247, 0.9);
   line-height: 1.55;
 }
 
@@ -407,11 +423,11 @@
 
 .simulator-module-rail i {
   height: 34px;
-  border: 1px solid rgba(236, 255, 251, 0.11);
+  border: 1px solid rgba(236, 255, 251, 0.18);
   border-radius: 6px;
   background:
-    linear-gradient(180deg, rgba(236, 255, 251, 0.12), rgba(236, 255, 251, 0.03)),
-    rgba(236, 255, 251, 0.05);
+    linear-gradient(180deg, rgba(236, 255, 251, 0.16), rgba(236, 255, 251, 0.06)),
+    rgba(236, 255, 251, 0.08);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
@@ -431,11 +447,11 @@
 }
 
 .simulator-meta-row span {
-  border: 1px solid rgba(236, 255, 251, 0.12);
+  border: 1px solid rgba(236, 255, 251, 0.2);
   border-radius: 999px;
-  background: rgba(236, 255, 251, 0.06);
+  background: rgba(236, 255, 251, 0.1);
   padding: 5px 7px;
-  color: rgba(236, 255, 251, 0.72);
+  color: rgba(245, 255, 252, 0.9);
   font-size: 12px;
   font-weight: 800;
 }
@@ -444,14 +460,14 @@
   align-self: end;
   width: 100%;
   margin-top: 18px;
-  border: 1px solid rgba(125, 245, 231, 0.34);
-  background: rgba(125, 245, 231, 0.14);
+  border: 1px solid rgba(125, 245, 231, 0.48);
+  background: rgba(48, 122, 117, 0.64);
   padding: 10px 12px;
   color: #ecfffb;
 }
 
 .simulator-card-button:hover:not(:disabled) {
-  background: rgba(125, 245, 231, 0.22);
+  background: rgba(54, 146, 139, 0.76);
 }
 
 .simulator-card-button:disabled {
@@ -466,9 +482,124 @@
 
 .simulator-card-red .simulator-card-icon,
 .simulator-card-red .simulator-card-button {
-  border-color: rgba(242, 106, 99, 0.3);
-  background: rgba(242, 106, 99, 0.12);
+  border-color: rgba(255, 176, 166, 0.42);
+  background: rgba(126, 61, 58, 0.62);
   color: #ffb0a6;
+}
+
+.simulator-card-customer-support {
+  border-color: rgba(85, 247, 224, 0.34);
+  background:
+    radial-gradient(circle at 88% 16%, rgba(85, 247, 224, 0.18), transparent 26%),
+    linear-gradient(180deg, rgba(18, 57, 57, 0.99), rgba(8, 34, 36, 0.99)),
+    #082224;
+}
+
+.simulator-card-customer-support::after {
+  background:
+    radial-gradient(circle at 86% 20%, transparent 0 7px, rgba(85, 247, 224, 0.24) 8px 9px, transparent 10px 32px),
+    linear-gradient(90deg, transparent 0 58%, rgba(85, 247, 224, 0.18) 58.4% 59%, transparent 59.4%),
+    linear-gradient(0deg, transparent 0 71%, rgba(85, 247, 224, 0.12) 71.4% 72%, transparent 72.4%);
+  opacity: 0.72;
+  animation: support-card-scan 5.8s linear infinite;
+}
+
+.simulator-card-customer-support .simulator-card-icon {
+  border-color: rgba(85, 247, 224, 0.48);
+  background: rgba(85, 247, 224, 0.16);
+  color: #78fff0;
+  box-shadow: 0 0 24px rgba(85, 247, 224, 0.18);
+}
+
+.simulator-card-customer-support .simulator-card-button {
+  border-color: rgba(85, 247, 224, 0.54);
+  background: linear-gradient(135deg, rgba(42, 134, 125, 0.78), rgba(23, 94, 105, 0.86));
+  box-shadow: 0 0 18px rgba(85, 247, 224, 0.14);
+}
+
+.simulator-card-customer-support .simulator-module-rail i:first-child,
+.simulator-card-customer-support .simulator-module-rail i:nth-child(3) {
+  animation: support-message-pulse 2.2s ease-in-out infinite;
+}
+
+.simulator-card-shift-roster {
+  border-color: rgba(255, 151, 135, 0.34);
+  background:
+    linear-gradient(90deg, rgba(255, 151, 135, 0.1) 0 1px, transparent 1px 25%),
+    linear-gradient(180deg, rgba(61, 38, 36, 0.99), rgba(28, 35, 36, 0.99)),
+    #1c2324;
+  background-size:
+    25% 100%,
+    auto,
+    auto;
+}
+
+.simulator-card-shift-roster::after {
+  background:
+    linear-gradient(90deg, transparent 0 12%, rgba(255, 151, 135, 0.2) 12.4% 31%, transparent 31.4% 100%),
+    linear-gradient(90deg, transparent 0 49%, rgba(255, 207, 143, 0.16) 49.4% 67%, transparent 67.4% 100%),
+    linear-gradient(180deg, transparent 0 37%, rgba(255, 151, 135, 0.16) 37.4% 38%, transparent 38.4%);
+  opacity: 0.68;
+  animation: roster-slot-shift 6.4s ease-in-out infinite;
+}
+
+.simulator-card-shift-roster .simulator-card-icon,
+.simulator-card-shift-roster .simulator-card-button {
+  border-color: rgba(255, 151, 135, 0.5);
+  background: rgba(126, 61, 58, 0.68);
+  color: #ffb8ad;
+}
+
+.simulator-card-shift-roster .simulator-card-button {
+  background: linear-gradient(135deg, rgba(126, 61, 58, 0.82), rgba(97, 48, 56, 0.9));
+  box-shadow: 0 0 18px rgba(255, 151, 135, 0.14);
+}
+
+.simulator-card-shift-roster .simulator-module-rail i:first-child,
+.simulator-card-shift-roster .simulator-module-rail i:nth-child(3) {
+  background: linear-gradient(180deg, rgba(255, 151, 135, 0.62), rgba(126, 61, 58, 0.2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 18px rgba(255, 151, 135, 0.24);
+  animation: roster-demand-glow 2.6s ease-in-out infinite;
+}
+
+.simulator-card-clinic-triage {
+  border-color: rgba(100, 218, 255, 0.34);
+  background:
+    radial-gradient(circle at 82% 20%, rgba(100, 218, 255, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(19, 47, 61, 0.99), rgba(11, 35, 44, 0.99)),
+    #0b232c;
+}
+
+.simulator-card-clinic-triage::after {
+  background:
+    linear-gradient(90deg, transparent 0 14%, rgba(100, 218, 255, 0.18) 14.4% 15.2%, transparent 15.6% 100%),
+    linear-gradient(118deg, transparent 0 35%, rgba(100, 218, 255, 0.24) 35.4% 36.4%, transparent 36.8% 100%),
+    linear-gradient(62deg, transparent 0 54%, rgba(146, 255, 212, 0.16) 54.4% 55.1%, transparent 55.5% 100%);
+  opacity: 0.74;
+  animation: clinic-vital-sweep 4.8s linear infinite;
+}
+
+.simulator-card-clinic-triage .simulator-card-icon,
+.simulator-card-clinic-triage .simulator-card-button {
+  border-color: rgba(100, 218, 255, 0.5);
+  background: rgba(38, 104, 129, 0.62);
+  color: #a8efff;
+}
+
+.simulator-card-clinic-triage .simulator-card-button {
+  background: linear-gradient(135deg, rgba(28, 111, 139, 0.78), rgba(20, 74, 104, 0.9));
+  box-shadow: 0 0 18px rgba(100, 218, 255, 0.14);
+}
+
+.simulator-card-clinic-triage .simulator-module-rail i:first-child,
+.simulator-card-clinic-triage .simulator-module-rail i:nth-child(3) {
+  background: linear-gradient(180deg, rgba(100, 218, 255, 0.62), rgba(38, 104, 129, 0.2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 18px rgba(100, 218, 255, 0.24);
+  animation: clinic-priority-beat 1.8s ease-in-out infinite;
 }
 
 .simulator-card-amber .simulator-card-icon,
@@ -483,6 +614,144 @@
   border-color: rgba(83, 205, 244, 0.32);
   background: rgba(83, 205, 244, 0.12);
   color: #a5edff;
+}
+
+.simulator-card-interview-coach {
+  border-color: rgba(178, 166, 255, 0.34);
+  background:
+    radial-gradient(circle at 18% 20%, rgba(178, 166, 255, 0.16), transparent 26%),
+    linear-gradient(180deg, rgba(36, 32, 61, 0.99), rgba(24, 30, 47, 0.99)),
+    #181e2f;
+}
+
+.simulator-card-interview-coach::after {
+  background:
+    repeating-radial-gradient(circle at 18% 20%, transparent 0 16px, rgba(178, 166, 255, 0.14) 17px 18px, transparent 19px 35px),
+    linear-gradient(90deg, transparent 0 20%, rgba(178, 166, 255, 0.14) 20.4% 21%, transparent 21.4% 100%),
+    linear-gradient(90deg, transparent 0 68%, rgba(255, 255, 255, 0.08) 68.4% 69%, transparent 69.4%);
+  opacity: 0.68;
+  animation: interview-signal-ring 5.2s ease-in-out infinite;
+}
+
+.simulator-card-interview-coach .simulator-card-icon,
+.simulator-card-interview-coach .simulator-card-button {
+  border-color: rgba(178, 166, 255, 0.5);
+  background: rgba(82, 69, 151, 0.64);
+  color: #d5d0ff;
+}
+
+.simulator-card-interview-coach .simulator-card-button {
+  background: linear-gradient(135deg, rgba(82, 69, 151, 0.8), rgba(61, 58, 116, 0.9));
+  box-shadow: 0 0 18px rgba(178, 166, 255, 0.14);
+}
+
+.simulator-card-interview-coach .simulator-module-rail i:first-child,
+.simulator-card-interview-coach .simulator-module-rail i:nth-child(3) {
+  background: linear-gradient(180deg, rgba(178, 166, 255, 0.62), rgba(82, 69, 151, 0.2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 18px rgba(178, 166, 255, 0.24);
+  animation: interview-wave-rise 2.3s ease-in-out infinite;
+}
+
+.simulator-card-clinic-triage .simulator-card-icon,
+.simulator-card-clinic-triage .simulator-card-button {
+  border-color: rgba(100, 218, 255, 0.5);
+  background: rgba(38, 104, 129, 0.62);
+  color: #a8efff;
+}
+
+.simulator-card-clinic-triage .simulator-card-button {
+  background: linear-gradient(135deg, rgba(28, 111, 139, 0.78), rgba(20, 74, 104, 0.9));
+  box-shadow: 0 0 18px rgba(100, 218, 255, 0.14);
+}
+
+.simulator-card-interview-coach .simulator-card-icon,
+.simulator-card-interview-coach .simulator-card-button {
+  border-color: rgba(178, 166, 255, 0.5);
+  background: rgba(82, 69, 151, 0.64);
+  color: #d5d0ff;
+}
+
+.simulator-card-interview-coach .simulator-card-button {
+  background: linear-gradient(135deg, rgba(82, 69, 151, 0.8), rgba(61, 58, 116, 0.9));
+  box-shadow: 0 0 18px rgba(178, 166, 255, 0.14);
+}
+
+.simulator-card-live:hover::before {
+  opacity: 0.54;
+  animation: card-shine-pass 1.4s ease-out;
+}
+
+.simulator-card-live:hover .simulator-card-icon {
+  transform: translateY(-2px);
+}
+
+.simulator-card-icon {
+  transition:
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+@keyframes card-shine-pass {
+  from { transform: translateX(-58%); }
+  to { transform: translateX(48%); }
+}
+
+@keyframes support-card-scan {
+  0% { background-position: 0 0, -24px 0, 0 -18px; }
+  100% { background-position: 0 0, 42px 0, 0 34px; }
+}
+
+@keyframes support-message-pulse {
+  0%, 100% { filter: brightness(1); transform: translateY(0); }
+  50% { filter: brightness(1.35); transform: translateY(-2px); }
+}
+
+@keyframes roster-slot-shift {
+  0%, 100% { transform: translateX(-10px); opacity: 0.58; }
+  50% { transform: translateX(12px); opacity: 0.82; }
+}
+
+@keyframes roster-demand-glow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.28); }
+}
+
+@keyframes clinic-vital-sweep {
+  0% { transform: translateX(-24px); opacity: 0.56; }
+  50% { opacity: 0.86; }
+  100% { transform: translateX(28px); opacity: 0.56; }
+}
+
+@keyframes clinic-priority-beat {
+  0%, 100% { transform: scaleY(1); filter: brightness(1); }
+  45% { transform: scaleY(1.16); filter: brightness(1.38); }
+}
+
+@keyframes interview-signal-ring {
+  0%, 100% { transform: scale(1); opacity: 0.56; }
+  50% { transform: scale(1.04); opacity: 0.82; }
+}
+
+@keyframes interview-wave-rise {
+  0%, 100% { transform: scaleY(0.92); filter: brightness(1); }
+  50% { transform: scaleY(1.18); filter: brightness(1.32); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .simulator-card::after,
+  .simulator-card-live:hover::before,
+  .simulator-card-customer-support .simulator-module-rail i:first-child,
+  .simulator-card-customer-support .simulator-module-rail i:nth-child(3),
+  .simulator-card-shift-roster .simulator-module-rail i:first-child,
+  .simulator-card-shift-roster .simulator-module-rail i:nth-child(3),
+  .simulator-card-clinic-triage .simulator-module-rail i:first-child,
+  .simulator-card-clinic-triage .simulator-module-rail i:nth-child(3),
+  .simulator-card-interview-coach .simulator-module-rail i:first-child,
+  .simulator-card-interview-coach .simulator-module-rail i:nth-child(3) {
+    animation: none;
+  }
 }
 
 .topbar {
@@ -2337,8 +2606,8 @@
   color: var(--muted);
 }
 
-.simulator-card-violet .simulator-card-icon,
-.simulator-card-violet .simulator-card-button {
+.simulator-card-violet:not(.simulator-card-interview-coach) .simulator-card-icon,
+.simulator-card-violet:not(.simulator-card-interview-coach) .simulator-card-button {
   border-color: rgba(107, 91, 214, 0.32);
   background: rgba(107, 91, 214, 0.12);
   color: #c9c4ff;

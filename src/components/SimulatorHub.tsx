@@ -4,7 +4,6 @@ import {
   Boxes,
   Briefcase,
   CirclePlay,
-  Factory,
   Lock,
   MessageSquareText,
   MicVocal,
@@ -38,19 +37,6 @@ interface SimulatorCard {
   icon: LucideIcon;
   meta: string[];
 }
-
-const upcomingSimulators: SimulatorCard[] = [
-  {
-    id: "factory-dispatch",
-    title: "厂房调度模拟器",
-    category: "生产调度",
-    description: "设备产能、交期压力和临时插单一起挤进排产板。",
-    status: "soon",
-    tone: "amber",
-    icon: Factory,
-    meta: ["产能瓶颈", "交期风险", "插单冲突"],
-  },
-];
 
 export function SimulatorHub({
   unlockedDays,
@@ -110,7 +96,6 @@ export function SimulatorHub({
     shiftRosterCard,
     clinicTriageCard,
     interviewCard,
-    ...upcomingSimulators.filter((card) => card.id !== "shift-roster" && card.id !== "clinic-triage"),
   ];
   const liveModuleCount = cards.filter((card) => card.status === "live").length;
   const upcomingModuleCount = cards.filter((card) => card.status === "soon").length;
@@ -126,7 +111,7 @@ export function SimulatorHub({
             <Boxes size={18} aria-hidden="true" />
             模拟器盒子
           </p>
-          <h1 id="hub-title">把一整排人生压力插进同一个盒子</h1>
+          <h1 id="hub-title">把人间风雨，收进一只盒</h1>
           <p className="hub-hero-lede">
             从客服席位启程，穿过门店、诊室与面试间的灯火；厂房的轰鸣在下一格等待亮起。
           </p>
@@ -203,7 +188,9 @@ function SimulatorModuleCard({
   const isLive = card.status === "live";
 
   return (
-    <article className={`simulator-card simulator-card-${card.status} simulator-card-${card.tone}`}>
+    <article
+      className={`simulator-card simulator-card-${card.status} simulator-card-${card.tone} simulator-card-${card.id}`}
+    >
       <div className="simulator-card-topline">
         <span className="simulator-card-icon">
           <Icon size={24} aria-hidden="true" />
