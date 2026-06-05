@@ -6,3 +6,38 @@ compatibility_date = "2026-06-05"
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+run_worker_first = ["/auth/*", "/api/*"]
+
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
+
+[[d1_databases]]
+binding = "DB"
+database_name = "customer-sim-db"
+database_id = "107b869b-e7fc-4403-b6af-051534a52675"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "23a07ac64af7428db95d763eb43d56b0"
+
+[[routes]]
+pattern = "sims.faster.hidns.vip/*"
+zone_id = "79f30ad37bdf1e14d574b4af1f48833e"
+
+[vars]
+LINUXDO_CLIENT_ID = "28g5uIHHU9VfAPj8XnnB73bDPzrwH1e4"
+

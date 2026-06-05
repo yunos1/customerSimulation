@@ -33,6 +33,8 @@ import { SupportModeSelect } from "./components/SupportModeSelect";
 import { TimeoutAlerts } from "./components/TimeoutAlerts";
 import { UnlockToast } from "./components/UnlockToast";
 import { unlockableCards } from "./content/unlockableCards";
+import { useAuth } from "./hooks/useAuth";
+import { useProgressSync } from "./hooks/useProgressSync";
 
 const defaultSupportModeId: SupportModeId = "workplace";
 const defaultSupportMode = supportModes[defaultSupportModeId];
@@ -41,6 +43,8 @@ const firstDay = defaultSupportMode.days[0];
 export default function App() {
   // 职业进度持久化在 meta 层（独立于 per-run GameState，跨浏览器会话保存）。
   const { meta, selectMode, selectDay, recordDayResult, resetCareer } = useMetaProgress();
+  const { user, loading: authLoading, login, logout } = useAuth();
+  useProgressSync(user ?? null, meta);
   const currentSupportMode = getSupportMode(meta.activeModeId);
   const currentModeProgress = getModeProgress(meta, currentSupportMode.id);
   const { currentDayId, unlockedDayIds, bestGrades } = currentModeProgress;
@@ -361,6 +365,10 @@ export default function App() {
         onLaunchInterview={launchInterviewSimulator}
         onLaunchShiftRoster={launchShiftRosterSimulator}
         onLaunchClinicTriage={launchClinicTriageSimulator}
+        user={user ?? null}
+        authLoading={authLoading}
+        onLogin={login}
+        onLogout={logout}
       />
     );
   }

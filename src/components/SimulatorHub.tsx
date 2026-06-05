@@ -16,6 +16,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import simulatorBoxHero from "../assets/simulator-box-hero.png";
+import { UserWidget } from "./UserWidget";
+import type { AuthUser } from "../hooks/useAuth";
 
 interface SimulatorHubProps {
   unlockedDays: number;
@@ -25,6 +27,10 @@ interface SimulatorHubProps {
   onLaunchInterview: () => void;
   onLaunchShiftRoster: () => void;
   onLaunchClinicTriage: () => void;
+  user: AuthUser | null;
+  authLoading: boolean;
+  onLogin: () => void;
+  onLogout: () => void;
 }
 
 interface SimulatorCard {
@@ -46,6 +52,10 @@ export function SimulatorHub({
   onLaunchInterview,
   onLaunchShiftRoster,
   onLaunchClinicTriage,
+  user,
+  authLoading,
+  onLogin,
+  onLogout,
 }: SimulatorHubProps) {
   const shiftRosterCard: SimulatorCard = {
     id: "shift-roster",
@@ -107,6 +117,9 @@ export function SimulatorHub({
           <img src={simulatorBoxHero} alt="" />
         </div>
         <div className="hub-hero-copy">
+          <div className="hub-user-row">
+            <UserWidget user={user} loading={authLoading} onLogin={onLogin} onLogout={onLogout} />
+          </div>
           <p className="hub-kicker">
             <Boxes size={18} aria-hidden="true" />
             模拟器盒子

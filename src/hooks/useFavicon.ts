@@ -15,7 +15,7 @@ export function setSimulatorFavicon(simulatorId: SimulatorId) {
   if (!link) {
     link = document.createElement("link");
     link.rel = "icon";
-    document.head.append(link);
+    document.head.appendChild(link);
   }
 
   link.type = "image/x-icon";

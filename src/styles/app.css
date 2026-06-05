@@ -5455,3 +5455,70 @@
     width: 100%;
   }
 }
+
+
+/* ── UserWidget ─────────────────────────────────────────────────────────────── */
+.user-widget {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  border-radius: 20px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.user-widget--login {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid var(--line-strong);
+}
+.user-widget--login:hover { background: var(--accent); color: #fff; }
+
+.user-widget--user {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.user-widget__avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.user-widget__initials {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.user-widget__name {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
+.user-widget__logout {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.user-widget__logout:hover { color: var(--danger); }

@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "customer-simulation" generated at 2026-06-05T15:56:10.865Z.
