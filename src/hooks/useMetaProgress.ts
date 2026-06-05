@@ -6,6 +6,8 @@ import {
   selectDay as mergeSelectedDay,
   selectMode as mergeSelectedMode,
   saveMeta,
+  STORAGE_KEY,
+  migrate,
 } from "../game/meta";
 import type { DayResult, MetaState } from "../game/meta";
 import type { SupportModeId } from "../content/career";
@@ -28,11 +30,24 @@ export function useMetaProgress(): UseMetaProgress {
   const [meta, setMeta] = useState<MetaState>(() => loadMeta());
 
   // 持久化：只在 meta 对象变化时写盘。
-  // 关键——依赖数组是 [meta]，而非 GameState；1 秒 TICK 不触碰 meta，
-  // 因此永远不会进入这条写盘路径。
   useEffect(() => {
     saveMeta(meta);
   }, [meta]);
+
+  // 多标签页同步：其他标签页写盘时合并最新数据。
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== STORAGE_KEY || e.newValue == null) return;
+      try {
+        const incoming = migrate(JSON.parse(e.newValue));
+        setMeta(incoming);
+      } catch {
+        // 解析失败：忽略，保持当前 meta 不变
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const selectMode = useCallback((modeId: SupportModeId) => {
     setMeta((prev) => mergeSelectedMode(prev, modeId));

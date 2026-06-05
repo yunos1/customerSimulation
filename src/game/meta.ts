@@ -69,7 +69,7 @@ export interface DayResult {
   finalSatisfaction: number;
 }
 
-const STORAGE_KEY = "customer-sim:meta";
+export const STORAGE_KEY = "customer-sim:meta";
 const META_VERSION = 2;
 const legacyModeId: SupportModeId = "workplace";
 

@@ -283,6 +283,8 @@ export interface GameState {
   // 让 reducer 保持纯函数：在 StrictMode 双调用下结果可重现。
   messageCounter: number;
   sessionCounter: number;
+  /** 本局唯一标识（Date.now() at createInitialState），用于 summary 防重复记录。 */
+  runId: number;
 }
 
 export type GameAction =

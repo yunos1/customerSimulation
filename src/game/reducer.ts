@@ -39,6 +39,7 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
   // 重置 scratch 计数器；下面的 createMessage 会推进 messageCounter。
   messageCounter = 0;
   sessionCounter = 0;
+  const runId = seed;
 
   const randomizedLevel = {
     ...level,
@@ -94,6 +95,7 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
     // 写回 scratch 计数器的当前值（上面 shiftMessages 已推进了 messageCounter）。
     messageCounter,
     sessionCounter,
+    runId,
   };
 }
 

@@ -38,7 +38,7 @@ export const ChatPanel = memo(function ChatPanel({
           {sessions.map((session) => (
             <button
               className={`session-tab ${session.id === activeSession?.id ? "session-tab-active" : ""} ${
-                session.status === "active" && session.elapsedSeconds >= 120 ? "session-tab-urgent" : ""
+                session.status === "active" && session.timeoutCounted ? "session-tab-urgent" : ""
               } session-tab-${session.status}`}
               key={session.id}
               type="button"

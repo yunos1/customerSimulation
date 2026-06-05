@@ -51,11 +51,11 @@ export default function App() {
   const [view, setView] = useState<"mode_select" | "career_map" | "shift">("mode_select");
 
   const currentDay = getCareerDay(currentDayId, currentSupportMode) ?? currentSupportMode.days[0] ?? firstDay;
-  // firstDay 是模块级常量，eslint-disable 避免误报（实际不会变）
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const initialState = useMemo(
     () => createInitialState(buildLevelConfig(firstDay), Date.now()),
-    [],
+    // firstDay 是模块级常量，实际不会变，但补全依赖保持 lint 规则一致
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [firstDay],
   );
   const [state, dispatch] = useReducer(gameReducer, initialState);
   const [scrollTargetSessionId, setScrollTargetSessionId] = useState<string>();
@@ -147,9 +147,8 @@ export default function App() {
       return;
     }
 
-    // 用首条 shiftMessage id 作为本局唯一标识，避免相同评级+结果数时误判为已记录。
-    const runId = state.shiftMessages[0]?.id ?? "unknown";
-    const summaryKey = `${runId}:${state.summary.grade}`;
+    // 用 state.runId 作为本局唯一标识（Date.now() at createInitialState），避免计数器重置时误判。
+    const summaryKey = `${state.runId}:${state.summary.grade}`;
 
     if (recordedSummaryRef.current === summaryKey) {
       return;
@@ -171,6 +170,7 @@ export default function App() {
   }, [
     state.phase,
     state.summary,
+    state.runId,
     state.outcomes,
     state.achievements,
     currentSupportMode.id,
@@ -260,9 +260,12 @@ export default function App() {
       }
 
       const sessionId = session.id;
+      const runId = s.runId;
       setPendingReplySessionId(sessionId);
       void requestAiCustomerReply(s, session, { kind: "card", cardId })
         .then((aiReactionLine) => {
+          // 若游戏已重开（runId 变化）或目标会话已不存在，丢弃结果
+          if (stateRef.current.runId !== runId) return;
           dispatch({ type: "CHOOSE_REPLY", cardId, sessionId, aiReactionLine });
         })
         .finally(() => {
@@ -281,9 +284,11 @@ export default function App() {
       }
 
       const sessionId = session.id;
+      const runId = s.runId;
       setPendingReplySessionId(sessionId);
       void requestAiCustomerReply(s, session, { kind: "free", text })
         .then((aiReactionLine) => {
+          if (stateRef.current.runId !== runId) return;
           dispatch({ type: "SUBMIT_FREE_REPLY", text, sessionId, aiReactionLine });
         })
         .finally(() => {
