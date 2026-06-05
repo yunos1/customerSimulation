@@ -63,3 +63,23 @@ export const gradeThresholds = {
   B: 42,
   C: 26,
 } as const;
+
+// ── 疲劳值机制 ────────────────────────────────────────────────────
+export const fatigue = {
+  /** 每次完成回复（无论结果）消耗的疲劳点数。 */
+  perReply: 8,
+  /** 每秒自然恢复的疲劳点数（idle 缓慢回血）。 */
+  recoveryPerTick: 1,
+  /** 疲劳到达此阈值时进入「疲劳」状态，客户到达间隔压缩至原来 60%。 */
+  pressureThreshold: 60,
+  /** 疲劳满（100）时每秒对所有活跃会话满意度的惩罚。 */
+  maxFatigueSatisfactionPenalty: 2,
+} as const;
+
+// ── 节假日客流波动 ────────────────────────────────────────────────
+export const holiday = {
+  /** 节假日客户到达间隔系数（0.5 = 间隔减半，客流翻倍）。 */
+  arrivalMultiplier: 0.5,
+  /** 节假日额外增加的最大并发会话数。 */
+  extraMaxSessions: 1,
+} as const;

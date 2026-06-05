@@ -1,5 +1,5 @@
 import { getUnlockedAchievements } from "../content/achievements";
-import { sessionTiming } from "./balance";
+import { fatigue as fatigueCfg, holiday as holidayCfg, sessionTiming } from "./balance";
 import { buildRandomizedCustomers } from "./customerGenerator";
 import { buildFreeReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
@@ -31,6 +31,8 @@ const maxOpenSessions = sessionTiming.maxOpenSessions;
 const minArrivalDelay = sessionTiming.minArrivalDelay;
 const maxArrivalDelay = sessionTiming.maxArrivalDelay;
 const randomEventChance = sessionTiming.randomEventChance;
+/** 单会话消息列表最多保留条数，超出时截去最早的非系统消息（保留首条系统接入消息）。 */
+const maxSessionMessages = 80;
 
 let messageCounter = 0;
 let sessionCounter = 0;
@@ -96,6 +98,7 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
     messageCounter,
     sessionCounter,
     runId,
+    fatigue: 0,
   };
 }
 
@@ -187,11 +190,13 @@ function tick(state: GameState, seed: number): GameState {
   // timeLeft 不再随每秒时钟流逝，改为纯粹的「处理精力」——只被玩家的回复动作消耗。
   // 这样玩家可以从容读客户、想策略，而不是被秒表追着提前下班。
   // 「等待 2 分钟红色提醒」基于真实 elapsedSeconds，独立保留，仍鼓励多线切换。
+  // 只展开活跃会话，其余直接返回原引用，减少每秒 GC 压力。
+  let sessionsChanged = false;
   const nextSessions = state.sessions.map((session): CustomerSession => {
     if (session.status !== "active") {
       return session;
     }
-
+    sessionsChanged = true;
     return {
       ...session,
       elapsedSeconds: session.elapsedSeconds + 1,
@@ -199,7 +204,8 @@ function tick(state: GameState, seed: number): GameState {
         session.timeoutCounted || session.elapsedSeconds + 1 >= timeoutAlertSeconds,
     };
   });
-  const newTimeoutAlertCount = nextSessions.filter(
+  const tickedSessions = sessionsChanged ? nextSessions : state.sessions;
+  const newTimeoutAlertCount = tickedSessions.filter(
     (session, index) =>
       session.status === "active" &&
       session.timeoutCounted &&
@@ -208,10 +214,9 @@ function tick(state: GameState, seed: number): GameState {
 
   const nextState: GameState = {
     ...state,
-    sessions: nextSessions,
-    // 时钟 tick 不改变 metrics（timeLeft 已改为仅由回复消耗），也不改变会话状态，
-    // 保留玩家手动选择的会话，避免每秒被弹回活跃会话。
-    // 会话结束/新客户接入时由各自路径重新计算 activeSessionId。
+    sessions: tickedSessions,
+    // 疲劳值每秒自然恢复
+    fatigue: Math.max(0, state.fatigue - fatigueCfg.recoveryPerTick),
     activeSessionId: state.activeSessionId,
     achievementStats:
       newTimeoutAlertCount > 0
@@ -222,7 +227,13 @@ function tick(state: GameState, seed: number): GameState {
         : state.achievementStats,
   };
 
-  const nextStateWithEvent = maybeTriggerRandomEvent(nextState, seed);
+  // 疲劳满时对所有活跃会话施加满意度惩罚（通过 shiftMetrics 传导）
+  const stateAfterFatigue =
+    nextState.fatigue >= 100
+      ? applyFatiguePenalty(nextState)
+      : nextState;
+
+  const nextStateWithEvent = maybeTriggerRandomEvent(stateAfterFatigue, seed);
   const nextStateWithTimeLimit =
     nextStateWithEvent.metrics.timeLeft <= 0
       ? closeActiveSessionsForTimeLimit(nextStateWithEvent)
@@ -237,20 +248,26 @@ function tick(state: GameState, seed: number): GameState {
     return summarize(nextStateWithAchievements);
   }
 
+  // 节假日：最大并发 +1，到达间隔压缩
+  const effectiveMaxSessions =
+    maxOpenSessions + (state.level.isHoliday ? holidayCfg.extraMaxSessions : 0);
+
   if (
     hasAvailableCustomer(nextStateWithAchievements) &&
-    countActiveSessions(nextStateWithAchievements.sessions) < maxOpenSessions
+    countActiveSessions(nextStateWithAchievements.sessions) < effectiveMaxSessions
   ) {
-    const nextArrivalIn = Math.max(0, state.nextArrivalIn - 1);
+    const arrivalDecrement =
+      state.level.isHoliday ||
+      state.fatigue >= fatigueCfg.pressureThreshold
+        ? 2  // 节假日 / 疲劳压力下到达更快
+        : 1;
+    const nextArrivalIn = Math.max(0, state.nextArrivalIn - arrivalDecrement);
 
     if (nextArrivalIn <= 0) {
       return connectRandomCustomer(nextStateWithAchievements, seed + messageCounter + sessionCounter);
     }
 
-    return {
-      ...nextStateWithAchievements,
-      nextArrivalIn,
-    };
+    return { ...nextStateWithAchievements, nextArrivalIn };
   }
 
   return nextStateWithAchievements;
@@ -386,12 +403,12 @@ function answerSession(
     nextRoundIndex,
     nextOutcomeMetrics,
   );
-  const baseMessages = [
+  const baseMessages = trimSessionMessages([
     ...session.messages,
     createMessage("agent", card.title),
     createMessage("customer", reactionLine),
     createMessage("system", feedback.message),
-  ];
+  ]);
   const nextCoachingStats = getNextCoachingStats(state, card, feedback, isFreeReply);
 
   if (outcome) {
@@ -410,9 +427,8 @@ function answerSession(
     const replacedSessions = replaceSession(state.sessions, nextSession);
     const nextState: GameState = {
       ...state,
-      metrics: {
-        ...nextMetrics,
-      },
+      metrics: { ...nextMetrics },
+      fatigue: Math.min(100, state.fatigue + fatigueCfg.perReply),
       sessions: replacedSessions,
       activeSessionId: getPreferredSessionId(replacedSessions, state.activeSessionId),
       outcomes: [...state.outcomes, outcome],
@@ -447,6 +463,7 @@ function answerSession(
   return refreshAchievements({
     ...state,
     metrics: nextMetrics,
+    fatigue: Math.min(100, state.fatigue + fatigueCfg.perReply),
     sessions: replaceSession(state.sessions, nextSession),
     achievementStats: getNextReplyStats(state, session, undefined, isFreeReply),
     coachingStats: nextCoachingStats,
@@ -945,4 +962,28 @@ function createMessage(speaker: ChatMessage["speaker"], text: string): ChatMessa
     speaker,
     text,
   };
+}
+
+/** 会话消息超过上限时，保留首条系统消息（接入提示）+ 最近的 maxSessionMessages-1 条。 */
+function trimSessionMessages(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= maxSessionMessages) return messages;
+  return [messages[0], ...messages.slice(-(maxSessionMessages - 1))];
+}
+
+/** 疲劳满时对所有活跃会话施加满意度惩罚。 */
+function applyFatiguePenalty(state: GameState): GameState {
+  const penalty = fatigueCfg.maxFatigueSatisfactionPenalty;
+  let changed = false;
+  const sessions = state.sessions.map((session) => {
+    if (session.status !== "active") return session;
+    changed = true;
+    return {
+      ...session,
+      metrics: {
+        ...session.metrics,
+        satisfaction: Math.max(0, session.metrics.satisfaction - penalty),
+      },
+    };
+  });
+  return changed ? { ...state, sessions } : state;
 }

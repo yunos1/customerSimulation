@@ -8,6 +8,8 @@ interface ChatPanelProps {
   sessions: CustomerSession[];
   shiftMessages: ChatMessage[];
   phase: GamePhase;
+  /** 流式 AI 回复正在生成时的临时文本（打字机效果）。 */
+  streamingText?: string;
   onStart: () => void;
   onSelectSession: (sessionId: string) => void;
 }
@@ -17,6 +19,7 @@ export const ChatPanel = memo(function ChatPanel({
   sessions,
   shiftMessages,
   phase,
+  streamingText,
   onStart,
   onSelectSession,
 }: ChatPanelProps) {
@@ -78,6 +81,15 @@ export const ChatPanel = memo(function ChatPanel({
             </div>
           </article>
         ))}
+        {streamingText && customer ? (
+          <article className="message message-customer message-streaming">
+            <CustomerAvatar customer={customer} size="sm" />
+            <div className="message-copy">
+              <span className="message-speaker">客户</span>
+              <p>{streamingText}<span className="streaming-cursor" aria-hidden="true" /></p>
+            </div>
+          </article>
+        ) : null}
       </div>
 
       <div className="chat-actions">

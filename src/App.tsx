@@ -9,7 +9,7 @@ import {
   supportModes,
   type SupportModeId,
 } from "./content/career";
-import { requestAiCustomerReply } from "./game/aiCustomerReply";
+import { requestAiCustomerReplyStream } from "./game/aiCustomerReply";
 import { createInitialState, gameReducer, getActiveSession } from "./game/reducer";
 import { getModeProgress, type ModeProgress } from "./game/meta";
 import { setSimulatorFavicon } from "./hooks/useFavicon";
@@ -60,6 +60,8 @@ export default function App() {
   const [state, dispatch] = useReducer(gameReducer, initialState);
   const [scrollTargetSessionId, setScrollTargetSessionId] = useState<string>();
   const [pendingReplySessionId, setPendingReplySessionId] = useState<string>();
+  // 打字机效果：流式 AI 回复正在生成时的临时文本（undefined = 无流式输出）
+  const [streamingText, setStreamingText] = useState<string | undefined>(undefined);
   // 本次新解锁、待 toast 展示的高级卡。
   const [newlyUnlockedCards, setNewlyUnlockedCards] = useState<UnlockableCard[]>([]);
   // 防止 summary 阶段的重复渲染多次记录成绩。
@@ -166,6 +168,7 @@ export default function App() {
       resolvedCount,
       complaintCount: state.outcomes.length - resolvedCount,
       finalSatisfaction: state.summary.totals.satisfaction,
+      fastestReplySeconds: state.achievementStats.fastestReplySeconds,
     });
   }, [
     state.phase,
@@ -262,13 +265,16 @@ export default function App() {
       const sessionId = session.id;
       const runId = s.runId;
       setPendingReplySessionId(sessionId);
-      void requestAiCustomerReply(s, session, { kind: "card", cardId })
+      void requestAiCustomerReplyStream(s, session, { kind: "card", cardId }, (partial) => {
+        setStreamingText(partial);
+      })
         .then((aiReactionLine) => {
-          // 若游戏已重开（runId 变化）或目标会话已不存在，丢弃结果
           if (stateRef.current.runId !== runId) return;
+          setStreamingText(undefined);
           dispatch({ type: "CHOOSE_REPLY", cardId, sessionId, aiReactionLine });
         })
         .finally(() => {
+          setStreamingText(undefined);
           setPendingReplySessionId((currentId) => (currentId === sessionId ? undefined : currentId));
         });
     },
@@ -286,12 +292,16 @@ export default function App() {
       const sessionId = session.id;
       const runId = s.runId;
       setPendingReplySessionId(sessionId);
-      void requestAiCustomerReply(s, session, { kind: "free", text })
+      void requestAiCustomerReplyStream(s, session, { kind: "free", text }, (partial) => {
+        setStreamingText(partial);
+      })
         .then((aiReactionLine) => {
           if (stateRef.current.runId !== runId) return;
+          setStreamingText(undefined);
           dispatch({ type: "SUBMIT_FREE_REPLY", text, sessionId, aiReactionLine });
         })
         .finally(() => {
+          setStreamingText(undefined);
           setPendingReplySessionId((currentId) => (currentId === sessionId ? undefined : currentId));
         });
     },
@@ -397,6 +407,7 @@ export default function App() {
             sessions={state.sessions}
             shiftMessages={state.shiftMessages}
             phase={state.phase}
+            streamingText={streamingText}
             onStart={handleStart}
             onSelectSession={handleSelectSession}
           />
@@ -417,6 +428,7 @@ export default function App() {
         view === "shift" && state.phase === "summary" ? (
           <DaySummary
             summary={state.summary}
+            sessions={state.sessions}
             passGrade={currentDay.passGrade}
             passed={passed}
             hasNextDay={hasNextDay}

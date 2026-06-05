@@ -113,8 +113,9 @@ export interface LevelConfig {
   replyCards: ReplyCard[];
   policies: PolicyEntry[];
   possibleEvents: RandomEvent[];
-  // 可选的客户生成配置。缺省时生成器走默认数量与全场景池（保持旧行为）。
   generation?: DayGenerationConfig;
+  /** 是否节假日：客流间隔减半，最大并发 +1。 */
+  isHoliday?: boolean;
 }
 
 export type Grade = "S" | "A" | "B" | "C" | "D";
@@ -285,6 +286,8 @@ export interface GameState {
   sessionCounter: number;
   /** 本局唯一标识（Date.now() at createInitialState），用于 summary 防重复记录。 */
   runId: number;
+  /** 客服疲劳值 0-100。每次回复 +8，每秒 -1；满 100 时对所有活跃会话持续扣满意度。 */
+  fatigue: number;
 }
 
 export type GameAction =

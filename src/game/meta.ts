@@ -25,6 +25,8 @@ export interface MetaRecords {
   totalComplaints: number;
   /** 历史最高最终满意度。 */
   bestSatisfaction: number;
+  /** 历史最快单次回复（秒）。Infinity 表示尚无记录。 */
+  bestReplySeconds: number;
 }
 
 export interface ModeProgress {
@@ -59,14 +61,12 @@ export interface DayResult {
   modeId?: SupportModeId;
   dayId: string;
   grade: Grade;
-  /** 本次值班解锁的成就（GameState.achievements）。 */
   achievements: AchievementId[];
-  /** 本次解决的客户数。 */
   resolvedCount: number;
-  /** 本次未解决的客户数。 */
   complaintCount: number;
-  /** 本次最终满意度（summary.totals.satisfaction）。 */
   finalSatisfaction: number;
+  /** 本次最快单次回复（秒），来自 achievementStats.fastestReplySeconds。 */
+  fastestReplySeconds?: number;
 }
 
 export const STORAGE_KEY = "customer-sim:meta";
@@ -88,6 +88,7 @@ export function defaultMeta(activeModeId: SupportModeId = legacyModeId): MetaSta
       totalResolved: 0,
       totalComplaints: 0,
       bestSatisfaction: 0,
+      bestReplySeconds: Number.POSITIVE_INFINITY,
     },
     unlockedCardIds: [],
   });
@@ -176,6 +177,10 @@ export function recordDayResult(meta: MetaState, result: DayResult): MetaStateWi
     totalResolved: meta.records.totalResolved + result.resolvedCount,
     totalComplaints: meta.records.totalComplaints + result.complaintCount,
     bestSatisfaction: Math.max(meta.records.bestSatisfaction, result.finalSatisfaction),
+    bestReplySeconds: Math.min(
+      meta.records.bestReplySeconds ?? Number.POSITIVE_INFINITY,
+      result.fastestReplySeconds ?? Number.POSITIVE_INFINITY,
+    ),
   };
 
   // 用并入后的 records / 成就重新推导解锁的卡。
@@ -381,6 +386,9 @@ function coerceRecords(value: unknown, base: MetaRecords): MetaRecords {
     bestSatisfaction: isFiniteNumber(value.bestSatisfaction)
       ? value.bestSatisfaction
       : base.bestSatisfaction,
+    bestReplySeconds: isFiniteNumber(value.bestReplySeconds)
+      ? value.bestReplySeconds
+      : base.bestReplySeconds,
   };
 }
 

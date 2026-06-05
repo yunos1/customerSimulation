@@ -2,7 +2,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { requestCustomerReaction } from "./src/shared/customerReaction";
+import { requestCustomerReaction, requestCustomerReactionStream } from "./src/shared/customerReaction";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -57,18 +57,47 @@ function registerCustomerReactionRoute(
 
     try {
       const body = await readJsonBody(request);
-      const line = await requestCustomerReaction(body, {
+      const aiConfig = {
         apiKey,
         baseUrl: env.AI_BASE_URL || env.VITE_AI_BASE_URL,
         model: env.AI_MODEL || env.VITE_AI_MODEL,
-      });
+      };
 
-      sendJson(response, 200, { line });
+      // stream=true 时使用 SSE 流式输出
+      const wantsStream = isRecord(body) && body.stream === true;
+
+      if (wantsStream) {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Connection", "keep-alive");
+
+        const bodyWithoutStream = isRecord(body)
+          ? Object.fromEntries(Object.entries(body).filter(([k]) => k !== "stream"))
+          : body;
+
+        for await (const token of requestCustomerReactionStream(bodyWithoutStream, aiConfig)) {
+          response.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
+        response.write("data: [DONE]\n\n");
+        response.end();
+      } else {
+        const line = await requestCustomerReaction(body, aiConfig);
+        sendJson(response, 200, { line });
+      }
     } catch (error) {
       console.warn("[customer-reaction-api]", error);
-      sendJson(response, 502, { error: "AI customer reply failed" });
+      if (!response.headersSent) {
+        sendJson(response, 502, { error: "AI customer reply failed" });
+      } else {
+        response.end();
+      }
     }
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readJsonBody(request: IncomingMessage) {

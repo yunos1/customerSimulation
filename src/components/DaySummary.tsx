@@ -1,14 +1,12 @@
-import { AlertTriangle, ArrowRight, BadgeCheck, Lightbulb, Map, RotateCcw, Trophy } from "lucide-react";
-import { memo } from "react";
-import type { DaySummary as DaySummaryType, Grade } from "../game/types";
+import { AlertTriangle, ArrowRight, BadgeCheck, ChevronDown, ChevronUp, Lightbulb, Map, RotateCcw, Trophy } from "lucide-react";
+import { memo, useState } from "react";
+import type { CustomerSession, DaySummary as DaySummaryType, Grade } from "../game/types";
 
 interface DaySummaryProps {
   summary?: DaySummaryType;
-  /** 本天过关所需最低评级。 */
+  sessions?: CustomerSession[];
   passGrade?: Grade;
-  /** 是否达到过关线。 */
   passed?: boolean;
-  /** 是否还有下一天可推进。 */
   hasNextDay?: boolean;
   onAdvance: () => void;
   onRetry: () => void;
@@ -17,6 +15,7 @@ interface DaySummaryProps {
 
 export const DaySummary = memo(function DaySummary({
   summary,
+  sessions = [],
   passGrade,
   passed = false,
   hasNextDay = false,
@@ -24,9 +23,9 @@ export const DaySummary = memo(function DaySummary({
   onRetry,
   onBackToMap,
 }: DaySummaryProps) {
-  if (!summary) {
-    return null;
-  }
+  const [expandedId, setExpandedId] = useState<string | undefined>(undefined);
+
+  if (!summary) return null;
 
   return (
     <section className="summary-panel">
@@ -48,42 +47,56 @@ export const DaySummary = memo(function DaySummary({
       </div>
 
       <dl className="summary-metrics">
-        <div>
-          <dt>最终满意度</dt>
-          <dd>{summary.totals.satisfaction}</dd>
-        </div>
-        <div>
-          <dt>公司成本</dt>
-          <dd>{summary.totals.companyCost} 元</dd>
-        </div>
-        <div>
-          <dt>合规风险</dt>
-          <dd>{summary.totals.complianceRisk}</dd>
-        </div>
-        <div>
-          <dt>剩余时间</dt>
-          <dd>{summary.totals.timeLeft} 分</dd>
-        </div>
+        <div><dt>最终满意度</dt><dd>{summary.totals.satisfaction}</dd></div>
+        <div><dt>公司成本</dt><dd>{summary.totals.companyCost} 元</dd></div>
+        <div><dt>合规风险</dt><dd>{summary.totals.complianceRisk}</dd></div>
+        <div><dt>剩余时间</dt><dd>{summary.totals.timeLeft} 分</dd></div>
       </dl>
 
       <div className="outcome-list">
-        {summary.outcomes.map((outcome) => (
-          <article key={outcome.customerId}>
-            <strong>{outcome.customerName}</strong>
-            <span>{getOutcomeLabel(outcome.status)}</span>
-          </article>
-        ))}
+        {summary.outcomes.map((outcome) => {
+          const session = sessions.find((s) => s.customer.id === outcome.customerId);
+          const isExpanded = expandedId === outcome.customerId;
+          return (
+            <article key={outcome.customerId}>
+              <div className="outcome-row">
+                <strong>{outcome.customerName}</strong>
+                <span>{getOutcomeLabel(outcome.status)}</span>
+                {session ? (
+                  <button
+                    className="outcome-expand-btn"
+                    type="button"
+                    aria-expanded={isExpanded}
+                    onClick={() => setExpandedId(isExpanded ? undefined : outcome.customerId)}
+                  >
+                    {isExpanded ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+                    {isExpanded ? "收起" : "复盘"}
+                  </button>
+                ) : null}
+              </div>
+              {isExpanded && session ? (
+                <div className="outcome-replay">
+                  {session.messages
+                    .filter((m) => m.speaker !== "system")
+                    .map((m) => (
+                      <div key={m.id} className={`replay-msg replay-msg-${m.speaker}`}>
+                        <span className="replay-speaker">{m.speaker === "customer" ? outcome.customerName : "你"}</span>
+                        <p>{m.text}</p>
+                      </div>
+                    ))}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
 
       <div className="diagnostic-list">
         {summary.diagnostics.map((diagnostic) => {
           const Icon = getDiagnosticIcon(diagnostic.tone);
-
           return (
             <article className={`diagnostic-item diagnostic-${diagnostic.tone}`} key={diagnostic.id}>
-              <span className="diagnostic-icon">
-                <Icon size={17} aria-hidden="true" />
-              </span>
+              <span className="diagnostic-icon"><Icon size={17} aria-hidden="true" /></span>
               <span className="diagnostic-copy">
                 <strong>{diagnostic.title}</strong>
                 <small>{diagnostic.body}</small>
@@ -114,29 +127,14 @@ export const DaySummary = memo(function DaySummary({
 });
 
 function getOutcomeLabel(status: DaySummaryType["outcomes"][number]["status"]) {
-  if (status === "resolved") {
-    return "已解决";
-  }
-
-  if (status === "compliance_escalation") {
-    return "主管介入";
-  }
-
-  if (status === "rage_quit") {
-    return "硬刚离席";
-  }
-
+  if (status === "resolved") return "已解决";
+  if (status === "compliance_escalation") return "主管介入";
+  if (status === "rage_quit") return "硬刚离席";
   return "投诉";
 }
 
 function getDiagnosticIcon(tone: DaySummaryType["diagnostics"][number]["tone"]) {
-  if (tone === "good") {
-    return BadgeCheck;
-  }
-
-  if (tone === "risk") {
-    return AlertTriangle;
-  }
-
+  if (tone === "good") return BadgeCheck;
+  if (tone === "risk") return AlertTriangle;
   return Lightbulb;
 }
