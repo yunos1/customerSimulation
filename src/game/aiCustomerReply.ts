@@ -25,22 +25,24 @@ export async function requestAiCustomerReply(
     previousReply: session.replyHistory[session.replyHistory.length - 1],
     templateUseCount: state.coachingStats.templateUseCount,
   });
-  const history = session.messages
-    .filter((message) => message.speaker === "customer" || message.speaker === "agent")
-    .slice(-8)
-    .map((message) => ({
-      speaker: message.speaker,
-      text: message.text,
-    }));
+
+  const allMessages = session.messages.filter(
+    (m) => m.speaker === "customer" || m.speaker === "agent",
+  );
+  // 保证截取后首条是 customer，避免上下文突兀
+  const sliced = allMessages.slice(-8);
+  const history = (sliced[0]?.speaker === "agent" ? sliced.slice(1) : sliced).map((m) => ({
+    speaker: m.speaker,
+    text: m.text,
+  }));
+
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
     const response = await fetch("/api/customer-reaction", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         customer: {
           name: session.customer.name,
@@ -54,10 +56,7 @@ export async function requestAiCustomerReply(
           preferredTags: round.preferredTags,
           riskyTags: round.riskyTags,
         },
-        reply: {
-          text: card.title,
-          tags: card.tags,
-        },
+        reply: { text: card.title, tags: card.tags },
         reactionKind,
         history,
       }),
@@ -65,6 +64,7 @@ export async function requestAiCustomerReply(
     });
 
     if (!response.ok) {
+      console.warn(`[aiCustomerReply] server error ${response.status}`);
       return undefined;
     }
 
@@ -72,7 +72,12 @@ export async function requestAiCustomerReply(
     const line = readReactionLine(data);
 
     return line;
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      console.warn("[aiCustomerReply] request timed out");
+    } else {
+      console.warn("[aiCustomerReply] request failed", err);
+    }
     return undefined;
   } finally {
     window.clearTimeout(timeoutId);
@@ -82,10 +87,8 @@ export async function requestAiCustomerReply(
 function resolveDraftCard(state: GameState, draft: PlayerReplyDraft): ReplyCard | undefined {
   if (draft.kind === "free") {
     const trimmedText = draft.text.trim();
-
     return trimmedText ? buildFreeReplyCard(trimmedText) : undefined;
   }
-
   return state.level.replyCards.find((card) => card.id === draft.cardId);
 }
 
@@ -93,8 +96,6 @@ function readReactionLine(data: unknown) {
   if (!data || typeof data !== "object" || !("line" in data)) {
     return undefined;
   }
-
   const line = (data as { line?: unknown }).line;
-
   return typeof line === "string" && line.trim() ? line.trim() : undefined;
 }
