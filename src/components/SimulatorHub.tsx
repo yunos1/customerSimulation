@@ -4,7 +4,6 @@ import {
   Boxes,
   Briefcase,
   CirclePlay,
-  Factory,
   Lock,
   MessageSquareText,
   MicVocal,
@@ -25,6 +24,7 @@ interface SimulatorHubProps {
   onLaunchSupport: () => void;
   onLaunchInterview: () => void;
   onLaunchShiftRoster: () => void;
+  onLaunchClinicTriage: () => void;
 }
 
 interface SimulatorCard {
@@ -50,16 +50,6 @@ const upcomingSimulators: SimulatorCard[] = [
     meta: ["客流峰值", "人员疲劳", "库存风险"],
   },
   {
-    id: "factory-dispatch",
-    title: "厂房调度模拟器",
-    category: "生产现场",
-    description: "订单、能耗、设备维护在同一条产线上互相挤压。",
-    status: "soon",
-    tone: "amber",
-    icon: Factory,
-    meta: ["产线节拍", "设备告警", "交付压力"],
-  },
-  {
     id: "clinic-triage",
     title: "诊室分诊模拟器",
     category: "公共服务",
@@ -78,6 +68,7 @@ export function SimulatorHub({
   onLaunchSupport,
   onLaunchInterview,
   onLaunchShiftRoster,
+  onLaunchClinicTriage,
 }: SimulatorHubProps) {
   const shiftRosterCard: SimulatorCard = {
     id: "shift-roster",
@@ -112,7 +103,24 @@ export function SimulatorHub({
     meta: ["3 个岗位", "9 位候选人", "延迟反馈"],
   };
 
-  const cards = [supportCard, shiftRosterCard, interviewCard, ...upcomingSimulators.filter((card) => card.id !== "shift-roster")];
+  const clinicTriageCard: SimulatorCard = {
+    id: "clinic-triage",
+    title: "诊室分诊模拟器",
+    category: "公共服务",
+    description: "在有限医生、诊室和检查窗口里识别真正高危的患者。",
+    status: "live",
+    tone: "cyan",
+    icon: Stethoscope,
+    meta: ["优先级", "等待恶化", "资源槽位"],
+  };
+
+  const cards = [
+    supportCard,
+    shiftRosterCard,
+    clinicTriageCard,
+    interviewCard,
+    ...upcomingSimulators.filter((card) => card.id !== "shift-roster" && card.id !== "clinic-triage"),
+  ];
 
   return (
     <main className="hub-shell">
@@ -179,7 +187,9 @@ export function SimulatorHub({
                     ? onLaunchInterview
                     : card.id === "shift-roster"
                       ? onLaunchShiftRoster
-                      : undefined
+                      : card.id === "clinic-triage"
+                        ? onLaunchClinicTriage
+                        : undefined
               }
             />
           ))}

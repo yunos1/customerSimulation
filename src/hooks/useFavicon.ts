@@ -3,6 +3,7 @@ const faviconBySimulator = {
   support: "favicons/customer-support.ico",
   interview: "favicons/interview-coach.ico",
   shiftRoster: "favicons/shift-roster.ico",
+  clinicTriage: "favicons/clinic-triage.ico",
 } as const;
 
 type SimulatorId = keyof typeof faviconBySimulator;
