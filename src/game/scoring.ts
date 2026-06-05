@@ -456,7 +456,7 @@ function getSequenceModifier(card: ReplyCard, context: ReplyScoringContext): Rep
     });
   }
 
-  if (has("policy") && !had("apology") && !had("empathy") && !had("investigate") && !had("policy")) {
+  if (has("policy") && !had("apology") && !had("empathy") && !had("investigate")) {
     addModifier(modifier, {
       delta: { anger: 4 },
       reactionBias: -1,

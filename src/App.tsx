@@ -51,6 +51,8 @@ export default function App() {
   const [view, setView] = useState<"mode_select" | "career_map" | "shift">("mode_select");
 
   const currentDay = getCareerDay(currentDayId, currentSupportMode) ?? currentSupportMode.days[0] ?? firstDay;
+  // firstDay 是模块级常量，eslint-disable 避免误报（实际不会变）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const initialState = useMemo(
     () => createInitialState(buildLevelConfig(firstDay), Date.now()),
     [],
@@ -62,9 +64,12 @@ export default function App() {
   const [newlyUnlockedCards, setNewlyUnlockedCards] = useState<UnlockableCard[]>([]);
   // 防止 summary 阶段的重复渲染多次记录成绩。
   const recordedSummaryRef = useRef<string | undefined>(undefined);
+  // 持有最新 state 引用，避免 handleChoose/handleSubmitFreeReply 将整个 state 加入依赖。
+  const stateRef = useRef(state);
   // 上一次已知的解锁卡集合，用于 diff 出「新」解锁（初始化为当前已解锁，避免开局误报）。
   const knownUnlockedRef = useRef<Set<string>>(new Set(meta.unlockedCardIds));
 
+  stateRef.current = state;
   const activeSession = getActiveSession(state);
   const activeCustomer = activeSession?.customer;
   const activeLevel = state.level;
@@ -104,21 +109,20 @@ export default function App() {
   }, [activeSimulator]);
 
   useEffect(() => {
-    if (
-      activeSimulator !== "support" ||
-      view !== "shift" ||
-      state.phase === "intro" ||
-      state.phase === "summary"
-    ) {
+    if (activeSimulator !== "support" || view !== "shift") {
       return undefined;
     }
 
+    // phase 判断移入回调，避免 phase 变化时重建 interval（防止短暂双 interval）
     const intervalId = window.setInterval(() => {
-      dispatch({ type: "TICK", seed: Date.now() });
+      const phase = stateRef.current.phase;
+      if (phase !== "intro" && phase !== "summary") {
+        dispatch({ type: "TICK", seed: Date.now() });
+      }
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [activeSimulator, state.phase, view]);
+  }, [activeSimulator, view]);
 
   useEffect(() => {
     if (!scrollTargetSessionId || activeSession?.id !== scrollTargetSessionId) {
@@ -143,7 +147,9 @@ export default function App() {
       return;
     }
 
-    const summaryKey = `${currentSupportMode.id}:${currentDayId}:${state.summary.grade}:${state.outcomes.length}`;
+    // 用首条 shiftMessage id 作为本局唯一标识，避免相同评级+结果数时误判为已记录。
+    const runId = state.shiftMessages[0]?.id ?? "unknown";
+    const summaryKey = `${runId}:${state.summary.grade}`;
 
     if (recordedSummaryRef.current === summaryKey) {
       return;
@@ -246,41 +252,45 @@ export default function App() {
   );
   const handleChoose = useCallback(
     (cardId: string) => {
-      const session = getActiveSession(state);
+      const s = stateRef.current;
+      const session = getActiveSession(s);
 
-      if (state.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
+      if (s.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
         return;
       }
 
-      setPendingReplySessionId(session.id);
-      void requestAiCustomerReply(state, session, { kind: "card", cardId })
+      const sessionId = session.id;
+      setPendingReplySessionId(sessionId);
+      void requestAiCustomerReply(s, session, { kind: "card", cardId })
         .then((aiReactionLine) => {
-          dispatch({ type: "CHOOSE_REPLY", cardId, sessionId: session.id, aiReactionLine });
+          dispatch({ type: "CHOOSE_REPLY", cardId, sessionId, aiReactionLine });
         })
         .finally(() => {
-          setPendingReplySessionId((currentId) => (currentId === session.id ? undefined : currentId));
+          setPendingReplySessionId((currentId) => (currentId === sessionId ? undefined : currentId));
         });
     },
-    [pendingReplySessionId, state],
+    [pendingReplySessionId],
   );
   const handleSubmitFreeReply = useCallback(
     (text: string) => {
-      const session = getActiveSession(state);
+      const s = stateRef.current;
+      const session = getActiveSession(s);
 
-      if (state.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
+      if (s.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
         return;
       }
 
-      setPendingReplySessionId(session.id);
-      void requestAiCustomerReply(state, session, { kind: "free", text })
+      const sessionId = session.id;
+      setPendingReplySessionId(sessionId);
+      void requestAiCustomerReply(s, session, { kind: "free", text })
         .then((aiReactionLine) => {
-          dispatch({ type: "SUBMIT_FREE_REPLY", text, sessionId: session.id, aiReactionLine });
+          dispatch({ type: "SUBMIT_FREE_REPLY", text, sessionId, aiReactionLine });
         })
         .finally(() => {
-          setPendingReplySessionId((currentId) => (currentId === session.id ? undefined : currentId));
+          setPendingReplySessionId((currentId) => (currentId === sessionId ? undefined : currentId));
         });
     },
-    [pendingReplySessionId, state],
+    [pendingReplySessionId],
   );
   const handleRetry = useCallback(() => {
     recordedSummaryRef.current = undefined;
