@@ -144,6 +144,7 @@ const emptyCoaching: CoachingStats = {
   supervisorUseCount: 0,
   pushbackUseCount: 0,
   freeReplyUseCount: 0,
+  recentTimingRiskNotes: [],
 };
 
 function makeOutcome(status: CustomerOutcome["status"], satisfaction = 80, anger = 20): CustomerOutcome {

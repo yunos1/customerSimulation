@@ -60,6 +60,8 @@ export function applyShiftDelta(metrics: Metrics, delta: MetricDelta): Metrics {
 type ReplyScoringContext = {
   previousReply?: ReplyMemory;
   templateUseCount: number;
+  /** 最近 N 回合已展示过的 timingRiskNotes，用于去重（同一提示 3 回合内不重复推送）。 */
+  recentTimingRiskNotes?: string[];
 };
 
 type ReplyModifier = {
@@ -197,6 +199,7 @@ export function buildDaySummary(
   outcomes: CustomerOutcome[],
   coachingStats: CoachingStats,
   timeoutCount: number,
+  gradeOffset = 0,
 ): DaySummary {
   const complaints = outcomes.filter((outcome) => outcome.status !== "resolved").length;
   const rageQuits = outcomes.filter((outcome) => outcome.status === "rage_quit").length;
@@ -223,13 +226,13 @@ export function buildDaySummary(
   const grade =
     rageQuits > 0
       ? "D"
-      : score >= gradeThresholds.S
+      : score >= gradeThresholds.S + gradeOffset
         ? "S"
-        : score >= gradeThresholds.A
+        : score >= gradeThresholds.A + gradeOffset
           ? "A"
-          : score >= gradeThresholds.B
+          : score >= gradeThresholds.B + gradeOffset
             ? "B"
-            : score >= gradeThresholds.C
+            : score >= gradeThresholds.C + gradeOffset
               ? "C"
               : "D";
 
@@ -470,6 +473,13 @@ function getSequenceModifier(card: ReplyCard, context: ReplyScoringContext): Rep
       reactionBias: -1,
       timingRiskNote: "今日模板已经偏多，客户对复制粘贴更敏感。",
     });
+  }
+
+  // 去重：同一 timingRiskNote 在最近回合已展示过则不重复推送。
+  if (context.recentTimingRiskNotes && context.recentTimingRiskNotes.length > 0) {
+    modifier.timingRiskNotes = modifier.timingRiskNotes.filter(
+      (note) => !context.recentTimingRiskNotes!.includes(note),
+    );
   }
 
   return modifier;

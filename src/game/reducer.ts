@@ -1,5 +1,5 @@
 import { getUnlockedAchievements } from "../content/achievements";
-import { fatigue as fatigueCfg, holiday as holidayCfg, sessionTiming } from "./balance";
+import { difficultyPresets, fatigue as fatigueCfg, holiday as holidayCfg, sessionTiming } from "./balance";
 import { buildRandomizedCustomers } from "./customerGenerator";
 import { buildFreeReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
@@ -77,6 +77,8 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
       savedAngryCustomerCount: 0,
       recoveredLowSatisfactionCount: 0,
       rageQuitCount: 0,
+      investigatePolicyComboCount: 0,
+      consecutiveNoTimeoutCount: 0,
     },
     coachingStats: {
       replyCount: 0,
@@ -93,6 +95,7 @@ export function createInitialState(level: LevelConfig, seed = Date.now()): GameS
       supervisorUseCount: 0,
       pushbackUseCount: 0,
       freeReplyUseCount: 0,
+      recentTimingRiskNotes: [],
     },
     // 写回 scratch 计数器的当前值（上面 shiftMessages 已推进了 messageCounter）。
     messageCounter,
@@ -377,6 +380,7 @@ function answerSession(
   const { delta, reactionKind, feedback } = scoreReply(session.customer, round, card, {
     previousReply: getPreviousReply(session),
     templateUseCount: state.coachingStats.templateUseCount,
+    recentTimingRiskNotes: state.coachingStats.recentTimingRiskNotes,
   });
   const nextSessionMetrics = applySessionDelta(
     session.metrics,
@@ -713,11 +717,14 @@ function createTimeLimitOutcome(
 }
 
 function summarize(state: GameState): GameState {
+  const preset = state.level.generation?.difficultyPreset;
+  const gradeOffset = preset ? difficultyPresets[preset].gradeOffset : 0;
   const summary = buildDaySummary(
     state.metrics,
     state.outcomes,
     state.coachingStats,
     state.achievementStats.timeoutCount,
+    gradeOffset,
   );
   const stateWithSummary = refreshAchievements({
     ...state,
@@ -821,6 +828,15 @@ function getNextReplyStats(
     recoveredLowSatisfactionCount:
       state.achievementStats.recoveredLowSatisfactionCount +
       (isResolved && session.customer.initialMetrics.satisfaction < 40 ? 1 : 0),
+    investigatePolicyComboCount:
+      state.achievementStats.investigatePolicyComboCount +
+      (session.replyHistory.length >= 1 &&
+       session.replyHistory[session.replyHistory.length - 1].tags.includes("investigate") &&
+       isResolved ? 1 : 0),
+    consecutiveNoTimeoutCount:
+      session.timeoutCounted
+        ? 0
+        : state.achievementStats.consecutiveNoTimeoutCount + 1,
   };
 }
 
@@ -857,6 +873,8 @@ function getNextCoachingStats(
     supervisorUseCount: state.coachingStats.supervisorUseCount + (has("supervisor") ? 1 : 0),
     pushbackUseCount: state.coachingStats.pushbackUseCount + (has("pushback") ? 1 : 0),
     freeReplyUseCount: state.coachingStats.freeReplyUseCount + (isFreeReply ? 1 : 0),
+    // 滚动窗口：把本次展示的提示追加进去，保留最近3条（按提示文本去重的滑动集合）。
+    recentTimingRiskNotes: [...state.coachingStats.recentTimingRiskNotes, ...feedback.timingRiskNotes].slice(-3),
   };
 }
 
@@ -908,6 +926,9 @@ function getAchievementTitle(achievementId: AchievementId) {
     "no-timeout": "不让客户干等",
     comeback: "逆风翻盘",
     "rage-quit": "大不了不干了",
+    "no-template-shift": "全程真人服务",
+    "investigate-policy-combo": "先查再说",
+    "no-timeout-streak": "连续及时响应",
   };
 
   return titles[achievementId];

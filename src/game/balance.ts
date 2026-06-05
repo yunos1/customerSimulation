@@ -76,6 +76,24 @@ export const fatigue = {
   maxFatigueSatisfactionPenalty: 2,
 } as const;
 
+// ── 难度分层预设 ──────────────────────────────────────────────────
+// 关卡通过 generation.difficultyPreset 引用其中一个 key，
+// customerGenerator 用 metricOffsets 叠加偏移，scoring 通过 gradeThresholds 调整压力。
+export type DifficultyPreset = "easy" | "normal" | "hard";
+
+export const difficultyPresets: Record<DifficultyPreset, {
+  /** 对每位客户初始满意度 / 怒气的额外偏移（负值让客户更难安抚）。 */
+  metricOffsets: { satisfaction: number; anger: number };
+  /** 客户到达最小间隔系数（<1 表示压缩，客流更密）。 */
+  arrivalMultiplier: number;
+  /** 评级阈值调整（正值让达到同一评级更难）。 */
+  gradeOffset: number;
+}> = {
+  easy:   { metricOffsets: { satisfaction: 12, anger: -12 }, arrivalMultiplier: 1.4, gradeOffset: -8  },
+  normal: { metricOffsets: { satisfaction: 0,  anger: 0   }, arrivalMultiplier: 1.0, gradeOffset: 0   },
+  hard:   { metricOffsets: { satisfaction: -10, anger: 14 }, arrivalMultiplier: 0.7, gradeOffset: 10  },
+} as const;
+
 // ── 节假日客流波动 ────────────────────────────────────────────────
 export const holiday = {
   /** 节假日客户到达间隔系数（0.5 = 间隔减半，客流翻倍）。 */

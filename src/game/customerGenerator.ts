@@ -1,4 +1,4 @@
-import { defaultCustomerCount } from "./balance";
+import { defaultCustomerCount, difficultyPresets } from "./balance";
 import type {
   Customer,
   CustomerRound,
@@ -1632,8 +1632,21 @@ export function buildRandomizedCustomers(
 ) {
   const rng = createRng(seed);
   const selectedScenarios = buildShiftScenarios(rng, generation);
+
+  // 将 difficultyPreset 的 metricOffsets 与关卡自身的 metricOffsets 叠加。
+  const presetOffsets = generation.difficultyPreset
+    ? difficultyPresets[generation.difficultyPreset].metricOffsets
+    : undefined;
+  const mergedOffsets =
+    presetOffsets || generation.metricOffsets
+      ? {
+          satisfaction: (presetOffsets?.satisfaction ?? 0) + (generation.metricOffsets?.satisfaction ?? 0),
+          anger: (presetOffsets?.anger ?? 0) + (generation.metricOffsets?.anger ?? 0),
+        }
+      : undefined;
+
   const generatedCustomers = selectedScenarios.map((scenario, index) =>
-    buildCustomer(scenario, rng, seed, index, generation.metricOffsets),
+    buildCustomer(scenario, rng, seed, index, mergedOffsets),
   );
 
   return generatedCustomers.length > 0 ? generatedCustomers : baseCustomers;

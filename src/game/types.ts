@@ -133,6 +133,8 @@ export interface DayGenerationConfig {
   scenarioPool?: string[];
   /** 对每位客户初始指标的额外偏移（让后续天数更难安抚）。 */
   metricOffsets?: Partial<Pick<Metrics, "satisfaction" | "anger">>;
+  /** 难度预设：覆盖 metricOffsets / arrivalMultiplier / gradeOffset。缺省 normal。 */
+  difficultyPreset?: "easy" | "normal" | "hard";
 }
 
 // 职业模式中的「一天」。通过 buildLevelConfig 适配成引擎消费的 LevelConfig。
@@ -190,7 +192,10 @@ export type AchievementId =
   | "human-touch"
   | "no-timeout"
   | "comeback"
-  | "rage-quit";
+  | "rage-quit"
+  | "no-template-shift"
+  | "investigate-policy-combo"
+  | "no-timeout-streak";
 
 export interface Achievement {
   id: AchievementId;
@@ -209,6 +214,10 @@ export type AchievementStats = {
   savedAngryCustomerCount: number;
   recoveredLowSatisfactionCount: number;
   rageQuitCount: number;
+  /** investigate 后立刻接 policy 的连续次数（本局累计）。 */
+  investigatePolicyComboCount: number;
+  /** 当前连续未触发超时提醒的客户会话数。 */
+  consecutiveNoTimeoutCount: number;
 };
 
 export type CoachingStats = {
@@ -226,6 +235,8 @@ export type CoachingStats = {
   supervisorUseCount: number;
   pushbackUseCount: number;
   freeReplyUseCount: number;
+  /** 最近展示过的 timingRiskNotes（滚动窗口，最多3条），用于跨回合去重。 */
+  recentTimingRiskNotes: string[];
 };
 
 export type CustomerSessionStatus = "active" | "resolved" | "failed";

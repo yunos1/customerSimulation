@@ -80,7 +80,7 @@ export const ReplyDeck = memo(function ReplyDeck({
 
         <div className="reply-grid">
           {cards.map((card) => {
-            const Icon = iconMap[card.tags[0]];
+            const Icon = iconMap[card.tags[0] as keyof typeof iconMap] ?? MessageCircle;
 
             return (
               <button

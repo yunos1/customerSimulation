@@ -67,6 +67,24 @@ export const achievements: Achievement[] = [
     description: "对不可理喻客户直接怼回去，触发一次硬刚结局。",
     category: "技巧",
   },
+  {
+    id: "no-template-shift",
+    title: "全程真人服务",
+    description: "整个班次没有使用任何模板回复卡。",
+    category: "技巧",
+  },
+  {
+    id: "investigate-policy-combo",
+    title: "先查再说",
+    description: "完成 3 次「查证→政策」的标准出牌顺序。",
+    category: "合规",
+  },
+  {
+    id: "no-timeout-streak",
+    title: "连续及时响应",
+    description: "连续 3 位客户均无超时提醒。",
+    category: "效率",
+  },
 ];
 
 export function getUnlockedAchievements(state: GameState): AchievementId[] {
@@ -80,6 +98,8 @@ export function getUnlockedAchievements(state: GameState): AchievementId[] {
   unlockWhen(unlocked, "multi-tasker", state.achievementStats.maxConcurrentSessions >= 3);
   unlockWhen(unlocked, "human-touch", state.achievementStats.freeReplyCount >= 3);
   unlockWhen(unlocked, "rage-quit", state.achievementStats.rageQuitCount >= 1);
+  unlockWhen(unlocked, "investigate-policy-combo", state.achievementStats.investigatePolicyComboCount >= 3);
+  unlockWhen(unlocked, "no-timeout-streak", state.achievementStats.consecutiveNoTimeoutCount >= 3);
 
   if (state.phase === "summary") {
     unlockWhen(unlocked, "perfect-shift", state.outcomes.every((outcome) => outcome.status === "resolved"));
@@ -91,6 +111,7 @@ export function getUnlockedAchievements(state: GameState): AchievementId[] {
     );
     unlockWhen(unlocked, "budget-keeper", state.metrics.companyCost <= 30);
     unlockWhen(unlocked, "no-timeout", state.achievementStats.timeoutCount === 0);
+    unlockWhen(unlocked, "no-template-shift", state.coachingStats.templateUseCount === 0);
   }
 
   return Array.from(unlocked);

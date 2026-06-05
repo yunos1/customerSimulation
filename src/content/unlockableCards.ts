@@ -79,4 +79,37 @@ export const unlockableCards: UnlockableCard[] = [
     condition: { kind: "totalRuns", count: 5 },
     hint: "完成 5 次值班",
   },
+  {
+    card: {
+      id: "zero-template-closer",
+      title: "全程真诚应答，一针见血收尾",
+      shortLabel: "真诚收尾",
+      description: "不用模板的人专属：用真实表达拉高满意度并快速结单。",
+      tags: ["empathy", "apology"],
+      effects: {
+        satisfaction: 16,
+        anger: -14,
+        timeLeft: -5,
+      },
+    },
+    condition: { kind: "achievement", id: "no-template-shift" },
+    hint: "解锁成就「全程真人服务」",
+  },
+  {
+    card: {
+      id: "policy-first-resolve",
+      title: "查证完毕后给出有据可查的结论",
+      shortLabel: "有据结案",
+      description: "先查证再讲政策的标准流程奖励：大幅压住合规风险。",
+      tags: ["policy", "investigate"],
+      effects: {
+        satisfaction: 6,
+        anger: -8,
+        complianceRisk: -22,
+        timeLeft: -9,
+      },
+    },
+    condition: { kind: "achievement", id: "investigate-policy-combo" },
+    hint: "解锁成就「先查再说」",
+  },
 ];
