@@ -1,8 +1,9 @@
-import { difficultyLabels } from "./content";
+import { decisionLabels, difficultySettings, interviewQuestions } from "./content";
 import type {
-  CustomInterviewInsight,
-  InterviewAnswer,
-  InterviewCustomization,
+  Candidate,
+  CandidateSignal,
+  HiringDecision,
+  InterviewDecisionRecord,
   InterviewDifficulty,
   InterviewHistoryRecord,
   InterviewMetricKey,
@@ -10,475 +11,398 @@ import type {
   InterviewQuestion,
   InterviewRole,
   InterviewSummary,
-  Interviewer,
+  QuestionId,
+  SignalKind,
 } from "./types";
 
 const metricLabels: Record<InterviewMetricKey, string> = {
-  clarity: "表达清晰度",
-  structure: "逻辑结构",
-  evidence: "案例证据",
-  roleFit: "岗位匹配",
-  resilience: "抗压能力",
+  accuracy: "判断准确",
+  evidence: "证据完整",
+  candidateExperience: "候选人体验",
+  biasControl: "偏见控制",
+  teamFit: "团队匹配",
 };
 
-const metricSeeds: InterviewMetrics = {
-  clarity: 62,
-  structure: 58,
-  evidence: 54,
-  roleFit: 56,
-  resilience: 60,
+const kindWeights: Record<SignalKind, number> = {
+  ability: 1.12,
+  evidence: 1.18,
+  team: 1,
+  motivation: 0.94,
+  risk: 1.1,
+  bias: 0.48,
 };
 
-const quantifiablePatterns = [
-  "%",
-  "％",
-  "k",
-  "K",
-  "万",
-  "千",
-  "小时",
-  "天",
-  "周",
-  "月",
-  "年",
-  "次",
-  "个",
-  "提升",
-  "降低",
-  "增长",
-  "减少",
-];
+export const metricSeed: InterviewMetrics = {
+  accuracy: 62,
+  evidence: 56,
+  candidateExperience: 76,
+  biasControl: 72,
+  teamFit: 58,
+};
 
-const structurePatterns = [
-  "首先",
-  "其次",
-  "最后",
-  "第一",
-  "第二",
-  "第三",
-  "背景",
-  "目标",
-  "行动",
-  "结果",
-  "复盘",
-  "因为",
-  "所以",
-  "但是",
-];
-
-const resiliencePatterns = [
-  "压力",
-  "冲突",
-  "质疑",
-  "失败",
-  "问题",
-  "风险",
-  "复盘",
-  "调整",
-  "沟通",
-  "推进",
-  "承担",
-];
-
-export function scoreInterviewAnswer(
-  answer: string,
-  question: InterviewQuestion,
-  role: InterviewRole,
-  difficulty: InterviewDifficulty,
-  interviewer: Interviewer,
-  previousAnswer?: InterviewAnswer,
-  customization?: InterviewCustomization,
-): InterviewAnswer {
-  const normalized = answer.trim();
-  const customSignals = collectCustomizationSignals(customization);
-  const lengthScore = scoreLength(normalized);
-  const structureScore = scorePatterns(normalized, structurePatterns, 5);
-  const evidenceScore = scoreEvidence(normalized);
-  const roleScore = scorePatterns(
-    normalized,
-    [...role.keywords, ...(question.evidenceHints ?? []), ...customSignals],
-    6,
-  );
-  const resilienceScore = scorePatterns(normalized, resiliencePatterns, 5);
-  const difficultyPenalty = difficulty === "senior" ? 5 : difficulty === "mid" ? 2 : 0;
-  const pressurePenalty = Math.max(0, interviewer.pressure - 2) * 2;
-
-  const metrics: InterviewMetrics = {
-    clarity: clamp(Math.round(45 + lengthScore * 0.42 + structureScore * 0.18 - pressurePenalty)),
-    structure: clamp(Math.round(40 + structureScore * 0.46 + lengthScore * 0.18 - difficultyPenalty)),
-    evidence: clamp(Math.round(38 + evidenceScore * 0.5 + roleScore * 0.12 - difficultyPenalty)),
-    roleFit: clamp(Math.round(42 + roleScore * 0.42 + evidenceScore * 0.14)),
-    resilience: clamp(Math.round(48 + resilienceScore * 0.32 + structureScore * 0.14 - pressurePenalty)),
-  };
-
-  const focusBonus = question.focus.reduce((sum, key) => sum + metrics[key], 0) / question.focus.length;
-  const score = clamp(
-    Math.round(
-      averageMetric(metrics) * 0.7 +
-        focusBonus * 0.3 -
-        (normalized.length < 36 ? 12 : 0) -
-        (normalized.length > 520 ? 5 : 0),
-    ),
-  );
+export function buildDecisionRecord({
+  candidate,
+  role,
+  difficulty,
+  decision,
+  askedQuestionIds,
+}: {
+  candidate: Candidate;
+  role: InterviewRole;
+  difficulty: InterviewDifficulty;
+  decision: HiringDecision;
+  askedQuestionIds: QuestionId[];
+}): InterviewDecisionRecord {
+  const discoveredSignals = collectSignals(candidate, askedQuestionIds);
+  const decisionScore = scoreDecision(decision, candidate.profile.recommendation);
+  const evidenceScore = scoreEvidence(askedQuestionIds, discoveredSignals);
+  const candidateExperience = scoreCandidateExperience(askedQuestionIds, difficulty);
+  const biasControl = scoreBiasControl(candidate, decision, askedQuestionIds, discoveredSignals);
+  const teamFit = scoreTeamFit(candidate, decision);
+  const blindSpots = buildBlindSpots(candidate, askedQuestionIds, discoveredSignals);
 
   return {
-    questionId: question.id,
-    prompt: question.prompt,
-    answer: normalized,
-    score,
-    metrics,
-    strengths: buildStrengths(metrics, role),
-    risks: buildRisks(metrics, normalized),
-    followUp: buildFollowUp(metrics, question, role, interviewer),
-    concern: buildInterviewerConcern(metrics, normalized, question, role),
-    improvedAnswer: buildImprovedAnswer(normalized, question, role, metrics, customization),
-    retryOfQuestionId: previousAnswer?.questionId,
-    improvementFrom: previousAnswer ? score - previousAnswer.score : undefined,
-  };
-}
-
-export function mergeInterviewMetrics(answers: InterviewAnswer[]): InterviewMetrics {
-  if (answers.length === 0) {
-    return metricSeeds;
-  }
-
-  return {
-    clarity: average(answers.map((answer) => answer.metrics.clarity)),
-    structure: average(answers.map((answer) => answer.metrics.structure)),
-    evidence: average(answers.map((answer) => answer.metrics.evidence)),
-    roleFit: average(answers.map((answer) => answer.metrics.roleFit)),
-    resilience: average(answers.map((answer) => answer.metrics.resilience)),
+    id: `${Date.now()}-${candidate.id}-${decision}`,
+    candidateId: candidate.id,
+    candidateName: candidate.name,
+    roleTitle: role.title,
+    decision,
+    recommendedDecision: candidate.profile.recommendation,
+    decisionScore,
+    evidenceScore,
+    candidateExperience,
+    biasControl,
+    teamFit,
+    askedQuestionIds,
+    discoveredSignals,
+    blindSpots,
+    verdict: buildVerdict(candidate, decision, decisionScore),
+    delayedFeedback: buildDelayedFeedback(candidate, decision),
+    createdAt: new Date().toISOString(),
   };
 }
 
 export function buildInterviewSummary(
-  answers: InterviewAnswer[],
+  records: InterviewDecisionRecord[],
   role: InterviewRole,
   difficulty: InterviewDifficulty,
-  interviewer: Interviewer,
-  customization?: InterviewCustomization,
 ): InterviewSummary {
-  const metrics = mergeInterviewMetrics(answers);
-  const pressureAdjustment = interviewer.pressure >= 4 ? 2 : 0;
-  const totalScore = clamp(Math.round(averageMetric(metrics) - pressureAdjustment));
-  const strongestAnswer = [...answers].sort((a, b) => b.score - a.score)[0];
-  const weakestAnswer = [...answers].sort((a, b) => a.score - b.score)[0];
+  const metrics = mergeInterviewMetrics(records);
+  const difficultyPenalty = difficulty === "executive" ? 4 : difficulty === "urgent" ? 2 : 0;
+  const totalScore = clamp(
+    Math.round(
+      metrics.accuracy * 0.32 +
+        metrics.evidence * 0.22 +
+        metrics.biasControl * 0.2 +
+        metrics.teamFit * 0.16 +
+        metrics.candidateExperience * 0.1 -
+        difficultyPenalty,
+    ),
+  );
+  const bestRecord = [...records].sort((a, b) => b.teamFit + b.decisionScore - (a.teamFit + a.decisionScore))[0];
 
   return {
     totalScore,
-    hireSignal: getHireSignal(totalScore),
-    verdict: buildVerdict(totalScore, role.title, difficulty),
+    verdict: buildSummaryVerdict(totalScore, role.title),
+    hireSignal: getHiringSignal(totalScore),
     metrics,
-    strongestAnswer,
-    weakestAnswer,
-    suggestions: buildSuggestions(metrics, weakestAnswer),
-    modelAnswer: buildModelAnswer(role, difficulty, customization),
+    bestCandidateId: bestRecord?.candidateId ?? "",
+    bestCandidateName: bestRecord?.candidateName ?? "暂无",
+    suggestions: buildSuggestions(records, metrics),
+    records,
   };
 }
 
-export function createHistoryRecord(
-  summary: InterviewSummary,
-  role: InterviewRole,
-  difficulty: InterviewDifficulty,
-  interviewer: Interviewer,
-): InterviewHistoryRecord {
+export function mergeInterviewMetrics(records: InterviewDecisionRecord[]): InterviewMetrics {
+  if (records.length === 0) {
+    return metricSeed;
+  }
+
   return {
-    id: `${Date.now()}-${role.id}-${difficulty}`,
+    accuracy: average(records.map((record) => record.decisionScore)),
+    evidence: average(records.map((record) => record.evidenceScore)),
+    candidateExperience: average(records.map((record) => record.candidateExperience)),
+    biasControl: average(records.map((record) => record.biasControl)),
+    teamFit: average(records.map((record) => record.teamFit)),
+  };
+}
+
+export function createHistoryRecord(summary: InterviewSummary, role: InterviewRole): InterviewHistoryRecord {
+  return {
+    id: `${Date.now()}-${role.id}`,
     roleTitle: role.title,
-    difficulty,
-    interviewerName: interviewer.name,
     score: summary.totalScore,
+    accuracy: summary.metrics.accuracy,
     createdAt: new Date().toISOString(),
     verdict: summary.hireSignal,
   };
 }
 
-export function buildRetryComparison(previous: InterviewAnswer, next: InterviewAnswer) {
-  const metricDeltas = (Object.keys(previous.metrics) as InterviewMetricKey[]).map((key) => ({
-    key,
-    label: metricLabels[key],
-    delta: next.metrics[key] - previous.metrics[key],
-  }));
-  const improved = metricDeltas.filter((item) => item.delta > 0).sort((a, b) => b.delta - a.delta);
+export function getQuestionById(questionId: QuestionId): InterviewQuestion {
+  return interviewQuestions.find((question) => question.id === questionId) ?? interviewQuestions[0];
+}
+
+export function getAskedCoverage(askedQuestionIds: QuestionId[]) {
+  const questionSet = new Set(askedQuestionIds);
 
   return {
-    scoreDelta: next.score - previous.score,
-    improvedMetrics: improved,
-    summary:
-      next.score > previous.score
-        ? `这次重答提升了 ${next.score - previous.score} 分，最明显的是${improved[0]?.label ?? "整体结构"}。`
-        : "这次重答还没有明显提升，建议先补数字证据，再压缩表达结构。",
+    hasEvidence: questionSet.has("impact") || questionSet.has("deep_dive"),
+    hasTeam: questionSet.has("collaboration"),
+    hasMotivation: questionSet.has("motivation"),
+    hasPressure: questionSet.has("pressure"),
+    hasPedigree: questionSet.has("pedigree"),
   };
 }
 
-function scoreLength(text: string) {
-  const length = text.length;
+export function getSignalSummary(signals: CandidateSignal[]) {
+  const positives = signals.filter((signal) => signal.tone === "positive").length;
+  const warnings = signals.filter((signal) => signal.tone === "warning" || signal.tone === "negative").length;
+  const neutral = signals.length - positives - warnings;
 
-  if (length < 20) {
-    return 12;
-  }
-
-  if (length < 60) {
-    return 38;
-  }
-
-  if (length < 160) {
-    return 78;
-  }
-
-  if (length < 360) {
-    return 92;
-  }
-
-  if (length < 560) {
-    return 82;
-  }
-
-  return 68;
+  return { positives, warnings, neutral };
 }
 
-function scorePatterns(text: string, patterns: string[], weight: number) {
-  const hits = patterns.filter((pattern) => text.toLowerCase().includes(pattern.toLowerCase())).length;
-
-  return clamp(hits * weight + Math.min(30, hits * 4));
+export function getDecisionDelta(decision: HiringDecision, recommendedDecision: HiringDecision) {
+  return scoreDecision(decision, recommendedDecision) - 100;
 }
 
-function scoreEvidence(text: string) {
-  const numberHits = (text.match(/\d+/g) ?? []).length;
-  const quantifiableHits = quantifiablePatterns.filter((pattern) => text.includes(pattern)).length;
-  const caseHits = ["我负责", "我做了", "我推动", "结果", "数据", "目标", "上线", "成交", "复盘"].filter(
-    (pattern) => text.includes(pattern),
-  ).length;
+function scoreDecision(decision: HiringDecision, recommendedDecision: HiringDecision) {
+  if (decision === recommendedDecision) {
+    return 100;
+  }
 
-  return clamp(numberHits * 11 + quantifiableHits * 8 + caseHits * 7);
+  if (decision === "waitlist" || recommendedDecision === "waitlist") {
+    return 72;
+  }
+
+  return 34;
 }
 
-function buildStrengths(metrics: InterviewMetrics, role: InterviewRole) {
-  const ranked = rankMetrics(metrics).slice(0, 2);
+function scoreEvidence(askedQuestionIds: QuestionId[], signals: CandidateSignal[]) {
+  const coverage = getAskedCoverage(askedQuestionIds);
+  const signalScore = signals.reduce((sum, signal) => sum + 6 * kindWeights[signal.kind], 0);
+  const usefulQuestionBonus =
+    (coverage.hasEvidence ? 16 : 0) +
+    (coverage.hasTeam ? 10 : 0) +
+    (coverage.hasMotivation ? 8 : 0) +
+    (coverage.hasPressure ? 7 : 0);
+  const pedigreePenalty = coverage.hasPedigree ? 10 : 0;
 
-  return ranked.map(([key, value]) => {
-    if (key === "roleFit") {
-      return `和${role.title}的核心能力有连接，${metricLabels[key]}达到 ${value}。`;
-    }
+  return clamp(Math.round(34 + signalScore + usefulQuestionBonus - pedigreePenalty));
+}
 
-    return `${metricLabels[key]}表现较稳，当前达到 ${value}。`;
+function scoreCandidateExperience(askedQuestionIds: QuestionId[], difficulty: InterviewDifficulty) {
+  const difficultySetting = difficultySettings[difficulty];
+  const deltas = askedQuestionIds
+    .map(getQuestionById)
+    .reduce((sum, question) => sum + question.experienceDelta, 0);
+  const pressurePenalty = difficulty === "urgent" ? 4 : difficulty === "executive" ? 2 : 0;
+  const overrunPenalty = Math.max(0, askedQuestionIds.length - difficultySetting.questionLimit) * 6;
+
+  return clamp(Math.round(74 + deltas - pressurePenalty - overrunPenalty));
+}
+
+function scoreBiasControl(
+  candidate: Candidate,
+  decision: HiringDecision,
+  askedQuestionIds: QuestionId[],
+  signals: CandidateSignal[],
+) {
+  const coverage = getAskedCoverage(askedQuestionIds);
+  const questionBias = askedQuestionIds.map(getQuestionById).reduce((sum, question) => sum + question.biasRisk, 0);
+  const warningBiasSignals = signals.filter((signal) => signal.kind === "bias" && signal.tone === "warning").length;
+  const evidenceBonus = coverage.hasEvidence ? 10 : 0;
+  const lowPedigreeRejectPenalty =
+    candidate.pedigree < 58 && decision === "reject" && !coverage.hasEvidence ? 18 : 0;
+  const highPedigreeHirePenalty =
+    candidate.pedigree > 82 && decision === "hire" && !coverage.hasEvidence ? 22 : 0;
+  const expressiveHirePenalty =
+    candidate.expression > 86 && decision === "hire" && !coverage.hasTeam && !coverage.hasPressure ? 12 : 0;
+  const slowCandidatePenalty =
+    candidate.expression < 65 && decision === "reject" && askedQuestionIds.length < 3 ? 14 : 0;
+
+  return clamp(
+    Math.round(
+      76 +
+        evidenceBonus -
+        questionBias -
+        warningBiasSignals * 7 -
+        lowPedigreeRejectPenalty -
+        highPedigreeHirePenalty -
+        expressiveHirePenalty -
+        slowCandidatePenalty,
+    ),
+  );
+}
+
+function scoreTeamFit(candidate: Candidate, decision: HiringDecision) {
+  const fit = candidate.profile.fitScore;
+
+  if (decision === "hire") {
+    return clamp(Math.round(fit + (candidate.profile.recommendation === "hire" ? 12 : -10)));
+  }
+
+  if (decision === "reject") {
+    return clamp(Math.round(100 - fit + (candidate.profile.recommendation === "reject" ? 18 : -12)));
+  }
+
+  const distanceFromMiddle = Math.abs(fit - 72);
+
+  return clamp(Math.round(84 - distanceFromMiddle + (candidate.profile.recommendation === "waitlist" ? 12 : -5)));
+}
+
+function collectSignals(candidate: Candidate, askedQuestionIds: QuestionId[]) {
+  const byLabel = new Map<string, CandidateSignal>();
+
+  askedQuestionIds.forEach((questionId) => {
+    candidate.responses[questionId].signals.forEach((signal) => {
+      byLabel.set(signal.label, signal);
+    });
   });
+
+  return Array.from(byLabel.values());
 }
 
-function buildRisks(metrics: InterviewMetrics, text: string) {
-  const risks = rankMetrics(metrics)
-    .reverse()
+function buildBlindSpots(
+  candidate: Candidate,
+  askedQuestionIds: QuestionId[],
+  discoveredSignals: CandidateSignal[],
+) {
+  const coverage = getAskedCoverage(askedQuestionIds);
+  const signalKinds = new Set(discoveredSignals.map((signal) => signal.kind));
+  const blindSpots: string[] = [];
+
+  if (!coverage.hasEvidence) {
+    blindSpots.push("缺少可验证成果证据，容易只看表达和履历。");
+  }
+
+  if (!coverage.hasTeam) {
+    blindSpots.push("没有检查协作方式，入职后的摩擦风险不清楚。");
+  }
+
+  if (!coverage.hasMotivation) {
+    blindSpots.push("岗位动机没有问透，可能忽略团队阶段是否匹配。");
+  }
+
+  if (candidate.pedigree > 82 && !signalKinds.has("risk")) {
+    blindSpots.push("候选人履历光环强，但风险信号挖得不够。");
+  }
+
+  if (candidate.expression < 65 && askedQuestionIds.length < 3) {
+    blindSpots.push("候选人慢热，提问太少会低估真实能力。");
+  }
+
+  return blindSpots.slice(0, 4);
+}
+
+function buildVerdict(candidate: Candidate, decision: HiringDecision, decisionScore: number) {
+  const recommended = decisionLabels[candidate.profile.recommendation];
+
+  if (decisionScore === 100) {
+    return `判断命中：这位候选人的合理处理是「${recommended}」。`;
+  }
+
+  if (decision === "hire" && candidate.profile.recommendation !== "hire") {
+    return `偏冒进：表面信号不错，但更稳的处理是「${recommended}」。`;
+  }
+
+  if (decision === "reject" && candidate.profile.recommendation !== "reject") {
+    return `偏保守：你可能漏掉了候选人的可用价值，更稳的处理是「${recommended}」。`;
+  }
+
+  return `判断留有余地：待定可以控制风险，但这位候选人的更优处理是「${recommended}」。`;
+}
+
+function buildDelayedFeedback(candidate: Candidate, decision: HiringDecision) {
+  if (decision === "hire") {
+    return candidate.profile.delayedOutcome;
+  }
+
+  if (decision === "waitlist") {
+    return `你把 ${candidate.name} 放入候补池。后续复盘显示：${candidate.profile.bestUse}`;
+  }
+
+  if (candidate.profile.recommendation === "hire") {
+    return `你错过了 ${candidate.name}。后续市场反馈显示：${candidate.profile.delayedOutcome}`;
+  }
+
+  return `你淘汰了 ${candidate.name}。后续复盘显示：${candidate.profile.hiddenRisk}`;
+}
+
+function buildSummaryVerdict(score: number, roleTitle: string) {
+  if (score >= 86) {
+    return `你像一位成熟的${roleTitle}面试官：能追证据，也能控制偏见。`;
+  }
+
+  if (score >= 74) {
+    return `你已经能做出多数有效判断，但还需要更稳定地追问风险和动机。`;
+  }
+
+  if (score >= 62) {
+    return `你抓到了一部分信号，但容易被表达、履历或单一亮点带走。`;
+  }
+
+  return `这轮误判偏多。下一轮先问成果证据，再问协作和动机，会稳很多。`;
+}
+
+function getHiringSignal(score: number) {
+  if (score >= 86) {
+    return "优秀面试官";
+  }
+
+  if (score >= 74) {
+    return "判断可靠";
+  }
+
+  if (score >= 62) {
+    return "需要复盘";
+  }
+
+  return "风险较高";
+}
+
+function buildSuggestions(records: InterviewDecisionRecord[], metrics: InterviewMetrics) {
+  const suggestions: string[] = [];
+  const weakestMetric = (Object.entries(metrics) as Array<[InterviewMetricKey, number]>).sort(
+    (a, b) => a[1] - b[1],
+  )[0]?.[0];
+  const allAsked = records.flatMap((record) => record.askedQuestionIds);
+  const askedPedigreeOften = allAsked.filter((id) => id === "pedigree").length >= 2;
+
+  if (weakestMetric === "accuracy") {
+    suggestions.push("先不要急着录用或淘汰，把最终判断和候选人的隐藏风险逐条对齐。");
+  }
+
+  if (weakestMetric === "evidence" || !allAsked.includes("impact")) {
+    suggestions.push("每位候选人至少问一次成果验证，要求他说清本人动作和可验证结果。");
+  }
+
+  if (weakestMetric === "biasControl" || askedPedigreeOften) {
+    suggestions.push("少用背景光环题，把公司名、学历和头衔都拉回到具体贡献上。");
+  }
+
+  if (weakestMetric === "candidateExperience") {
+    suggestions.push("压力题要有节制，先给候选人展示能力的空间，再追问风险。");
+  }
+
+  if (weakestMetric === "teamFit" || !allAsked.includes("motivation")) {
+    suggestions.push("加问动机匹配，确认候选人想要的环境和团队真实阶段一致。");
+  }
+
+  records
+    .flatMap((record) => record.blindSpots)
     .slice(0, 2)
-    .map(([key, value]) => `${metricLabels[key]}还不够有说服力，当前只有 ${value}。`);
-
-  if (!/\d/.test(text)) {
-    risks.unshift("回答里缺少数字或结果证据，面试官很难判断真实影响。");
-  }
-
-  return Array.from(new Set(risks)).slice(0, 3);
-}
-
-function buildFollowUp(
-  metrics: InterviewMetrics,
-  question: InterviewQuestion,
-  role: InterviewRole,
-  interviewer: Interviewer,
-) {
-  const weakest = rankMetrics(metrics).reverse()[0][0];
-  const prefix = interviewer.pressure >= 4 ? "我直接一点追问：" : "我想继续追问：";
-
-  if (weakest === "evidence") {
-    return `${prefix}这个案例里最关键的一个数字是什么？如果没有这个数字，你会用什么证据证明结果？`;
-  }
-
-  if (weakest === "structure") {
-    return `${prefix}请你按“背景、目标、动作、结果”重新压缩一遍，重点说你自己的动作。`;
-  }
-
-  if (weakest === "roleFit") {
-    return `${prefix}这段经历为什么能证明你适合${role.title}，而不是只说明你参与过项目？`;
-  }
-
-  if (weakest === "resilience") {
-    return `${prefix}如果当时有人质疑你的判断，你会怎么回应并推进？`;
-  }
-
-  return `${prefix}${question.title}里最重要的信息是什么？请用一句话先给结论。`;
-}
-
-function buildInterviewerConcern(
-  metrics: InterviewMetrics,
-  text: string,
-  question: InterviewQuestion,
-  role: InterviewRole,
-) {
-  const weakest = rankMetrics(metrics).reverse()[0][0];
-
-  if (text.length < 60) {
-    return "回答太短，面试官会担心你只有结论，没有真实经历支撑。";
-  }
-
-  if (weakest === "evidence") {
-    return "面试官最大的顾虑是结果不可验证：你说做了事，但还没证明影响有多大。";
-  }
-
-  if (weakest === "structure") {
-    return "面试官会觉得信息顺序偏散，需要更快听到背景、动作和结果。";
-  }
-
-  if (weakest === "roleFit") {
-    return `这题还没有充分扣回${role.title}的核心能力，容易被判断为泛泛项目经历。`;
-  }
-
-  if (weakest === "resilience") {
-    return "面试官还看不到你在压力、冲突或不确定性下如何保持推进。";
-  }
-
-  return `这题的关键是“${question.title}”，面试官希望先听到明确结论，再听证据。`;
-}
-
-function buildImprovedAnswer(
-  answer: string,
-  question: InterviewQuestion,
-  role: InterviewRole,
-  metrics: InterviewMetrics,
-  customization?: InterviewCustomization,
-) {
-  const weakest = rankMetrics(metrics).reverse()[0][0];
-  const signal = question.evidenceHints?.[0] ?? collectCustomizationSignals(customization)[0] ?? role.competencies[0];
-  const resultHint = /\d/.test(answer) ? "把已有数字和岗位目标连起来" : "补一个可验证数字，例如比例、时长、金额或用户规模";
-
-  if (weakest === "evidence") {
-    return `我会这样重写：背景是这个岗位关注“${signal}”，我在某个具体项目里负责其中一块。我的动作不是泛泛参与，而是先明确目标，再做关键推进，最后用${resultHint}证明结果。复盘时我还沉淀了一个可复用做法，所以这段经历能支撑我胜任${role.title}。`;
-  }
-
-  if (weakest === "structure") {
-    return `我会这样重写：先给结论，我适合${role.title}，因为我有和“${signal}”相关的实战经历。背景是什么，目标是什么，我具体做了哪三件事，结果如何，最后我学到什么。用这个顺序回答，面试官会更容易抓住重点。`;
-  }
-
-  if (weakest === "roleFit") {
-    return `我会这样重写：这个案例和${role.title}直接相关，因为它体现了${role.competencies
-      .slice(0, 2)
-      .join("和")}。我不只是在项目里执行任务，还做了判断、推进和复盘。最后我会明确说明这套经验如何迁移到贵公司的岗位要求。`;
-  }
-
-  if (weakest === "resilience") {
-    return `我会这样重写：当时最大的困难是资源、时间或观点冲突。我先承认风险，再把问题拆小，和关键协作者对齐判断，最后推动一个可落地方案。这个回答要让面试官看到你不是只会顺风做事，也能在压力下稳定推进。`;
-  }
-
-  return `我会这样重写：第一句话先回答问题，再用一个具体案例补证据。案例里要包含背景、你的动作、结果和复盘，最后扣回${role.title}的岗位要求。`;
-}
-
-function buildSuggestions(metrics: InterviewMetrics, weakestAnswer?: InterviewAnswer) {
-  const weakestMetrics = rankMetrics(metrics).reverse().slice(0, 3);
-  const suggestions: string[] = weakestMetrics.map(([key]) => {
-    if (key === "evidence") {
-      return "补上数字、范围或对比结果，例如提升多少、节省多少、影响多少用户。";
-    }
-
-    if (key === "structure") {
-      return "用 STAR 或“背景-动作-结果-复盘”组织答案，先给结论再展开。";
-    }
-
-    if (key === "roleFit") {
-      return "每个案例最后都要扣回岗位能力，说明它和目标岗位的关系。";
-    }
-
-    if (key === "resilience") {
-      return "主动说出困难、冲突和取舍，展示你如何在压力下保持推进。";
-    }
-
-    return "减少铺垫，第一句话直接回答问题，再补关键细节。";
-  });
-
-  if (weakestAnswer) {
-    suggestions.unshift(`优先重练“${weakestAnswer.prompt}”这题，它最影响本场印象。`);
-  }
+    .forEach((blindSpot) => suggestions.push(blindSpot));
 
   return Array.from(new Set(suggestions)).slice(0, 4);
-}
-
-function buildModelAnswer(
-  role: InterviewRole,
-  difficulty: InterviewDifficulty,
-  customization?: InterviewCustomization,
-) {
-  const level = difficultyLabels[difficulty];
-  const customSignals = collectCustomizationSignals(customization);
-  const customTail =
-    customSignals.length > 0
-      ? `如果结合这份 JD/简历，我会主动点出“${customSignals.slice(0, 2).join("、")}”，让面试官知道我的经历和岗位要求不是偶然重合。`
-      : "";
-
-  return `我会用一个${role.title}相关项目说明。背景是团队需要解决一个明确问题，我先确认目标和成功指标，再拆出关键动作：调研真实场景、确定优先级、推进协作并持续复盘。过程中我重点负责把不确定问题变成可执行方案，最后用数据验证结果。这个经历和${level}${role.title}岗位匹配，因为它体现了${role.competencies
-    .slice(0, 3)
-    .join("、")}。${customTail}`;
-}
-
-function getHireSignal(score: number) {
-  if (score >= 86) {
-    return "强烈推荐进入下一轮";
-  }
-
-  if (score >= 74) {
-    return "建议进入下一轮";
-  }
-
-  if (score >= 62) {
-    return "待定，需要补充证据";
-  }
-
-  return "暂不推荐";
-}
-
-function buildVerdict(score: number, roleTitle: string, difficulty: InterviewDifficulty) {
-  const level = difficultyLabels[difficulty];
-
-  if (score >= 86) {
-    return `这是一场有竞争力的${level}${roleTitle}面试，回答能让面试官看到方法、结果和成熟度。`;
-  }
-
-  if (score >= 74) {
-    return `整体达到了${level}${roleTitle}的基本要求，再补强关键数字会更稳。`;
-  }
-
-  if (score >= 62) {
-    return `表达方向是对的，但证据和岗位扣题还不够，需要把经历讲得更具体。`;
-  }
-
-  return `当前回答偏泛，面试官还难以判断真实能力，建议先重练项目案例和结构表达。`;
-}
-
-function rankMetrics(metrics: InterviewMetrics): Array<[InterviewMetricKey, number]> {
-  return (Object.entries(metrics) as Array<[InterviewMetricKey, number]>).sort((a, b) => b[1] - a[1]);
-}
-
-function collectCustomizationSignals(customization?: InterviewCustomization | CustomInterviewInsight) {
-  if (!customization) {
-    return [];
-  }
-
-  if ("keywords" in customization) {
-    return customization.keywords;
-  }
-
-  const text = `${customization.jdText} ${customization.resumeText}`;
-  const signals = Array.from(text.matchAll(/[A-Za-z][A-Za-z0-9+#.-]{1,20}|[\u4e00-\u9fa5]{2,8}/g))
-    .map((match) => match[0])
-    .filter((word) => word.length >= 2)
-    .slice(0, 20);
-
-  return Array.from(new Set(signals)).slice(0, 8);
 }
 
 function average(values: number[]) {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-function averageMetric(metrics: InterviewMetrics) {
-  return average(Object.values(metrics));
-}
-
 function clamp(value: number) {
   return Math.max(0, Math.min(100, value));
 }
+
+export { metricLabels };

@@ -90,13 +90,13 @@ export function SimulatorHub({
 
   const interviewCard: SimulatorCard = {
     id: "interview-coach",
-    title: "模拟面试官",
-    category: "求职训练",
-    description: "选择岗位和难度，接受连续提问、追问、评分和复盘。",
+    title: "面试官游戏",
+    category: "招聘判断",
+    description: "在有限提问里识别候选人信号，做录用、待定或淘汰判断。",
     status: "live",
     tone: "violet",
     icon: MicVocal,
-    meta: ["3 个岗位", "4 位面试官", "即时复盘"],
+    meta: ["3 个岗位", "9 位候选人", "延迟反馈"],
   };
 
   const cards = [supportCard, interviewCard, ...upcomingSimulators];
