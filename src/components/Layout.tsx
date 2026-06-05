@@ -12,7 +12,7 @@ interface LayoutProps {
   eyebrow?: string;
   title?: string;
   shiftBadge?: string;
-  accent?: "workplace" | "comedy" | "cyber";
+  accent?: "workplace" | "comedy" | "cyber" | "midnight" | "reversal";
   onBackToHub?: () => void;
   onSwitchSupportMode?: () => void;
 }

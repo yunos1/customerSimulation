@@ -1,4 +1,4 @@
-import { BadgeCheck, BriefcaseBusiness, Clapperboard, Lock, RadioTower, Sparkles } from "lucide-react";
+import { BadgeCheck, BriefcaseBusiness, Clapperboard, Lock, Moon, RadioTower, Scale, Sparkles } from "lucide-react";
 import { memo } from "react";
 import type { SupportModeConfig, SupportModeId } from "../content/career";
 import type { ModeProgress } from "../game/meta";
@@ -13,6 +13,8 @@ const iconMap = {
   workplace: BriefcaseBusiness,
   comedy: Clapperboard,
   cyber: RadioTower,
+  midnight: Moon,
+  reversal: Scale,
 } as const;
 
 export const SupportModeSelect = memo(function SupportModeSelect({

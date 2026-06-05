@@ -13,7 +13,7 @@ import type {
   ReplyCard,
 } from "../game/types";
 
-export type SupportModeId = "workplace" | "comedy" | "cyber";
+export type SupportModeId = "workplace" | "comedy" | "cyber" | "midnight" | "reversal";
 
 export interface SupportModeConfig extends CareerConfig {
   id: SupportModeId;
@@ -26,7 +26,7 @@ export interface SupportModeConfig extends CareerConfig {
   headerEyebrow: string;
   headerTitle: string;
   shiftBadge: string;
-  accent: "workplace" | "comedy" | "cyber";
+  accent: "workplace" | "comedy" | "cyber" | "midnight" | "reversal";
 }
 
 const defaultMetrics: Metrics = {
@@ -400,6 +400,260 @@ const cyberDays: CareerDay[] = [
   },
 ];
 
+// 模式 4：深夜情绪客服。凌晨值班，客户需要的不是解决方案，是被听见。
+const midnightPolicies: PolicyEntry[] = [
+  {
+    id: "midnight-slow-down",
+    title: "放慢节奏优先",
+    category: "接待",
+    body: "凌晨接线不以处理速度为优先。客户情绪表达未完整前，不得直接跳至解决方案或结束会话。",
+    relatedTags: ["empathy", "investigate"],
+  },
+  {
+    id: "midnight-no-template",
+    title: "禁用情感模板",
+    category: "接待",
+    body: "凌晨时段检测到模板话术（亲亲、呢、哦亲）将触发满意度惩罚。必须使用真实语气回应。",
+    relatedTags: ["empathy"],
+  },
+  {
+    id: "midnight-crisis-escalation",
+    title: "情绪危机识别",
+    category: "升级",
+    body: "客户表达孤独、绝望或自我怀疑时，禁止绕回产品问题；需先确认对方状态并申请情绪专线介入。",
+    relatedTags: ["supervisor", "empathy"],
+  },
+  {
+    id: "midnight-no-rush",
+    title: "不催挂线",
+    category: "接待",
+    body: "凌晨值班中，系统KPI不计接待时长。主动催促挂线将扣除满意度，哪怕问题已解决。",
+    relatedTags: ["empathy", "policy"],
+  },
+];
+
+const midnightEvents: RandomEvent[] = [
+  {
+    id: "midnight-silence",
+    title: "沉默的电话",
+    description: "客户接通后长时间不说话。等待比回复更重要。",
+    effects: { timeLeft: -12 },
+  },
+  {
+    id: "midnight-sob",
+    title: "背景里有哭声",
+    description: "客户在描述问题时声音哽咽，合规系统标记为高风险情绪工单。",
+    effects: { complianceRisk: 8, satisfaction: 5 },
+  },
+  {
+    id: "midnight-kpi-alert",
+    title: "KPI预警推送",
+    description: "系统弹出今日接待时长超标提醒，但你知道不能催。",
+    effects: { complianceRisk: 5, timeLeft: -5 },
+  },
+];
+
+const midnightDays: CareerDay[] = [
+  {
+    id: "midnight-shift-01",
+    title: "凌晨一点的接线",
+    briefing: "大多数人睡着了，打来电话的人往往不只是为了退货。放慢节奏，先听，再说。",
+    baseMetrics: {
+      satisfaction: 40,
+      anger: 35,
+      companyCost: 0,
+      complianceRisk: 8,
+      timeLeft: 180,
+    },
+    generation: {
+      customerCount: 5,
+      typeWeights: {
+        passive_aggressive: 2.5,
+        policy_checker: 1,
+        lost_package: 2,
+        coupon_hunter: 0.5,
+        angry_refund: 1,
+      },
+    },
+    passGrade: "C",
+  },
+  {
+    id: "midnight-shift-02",
+    title: "情绪工单夜",
+    briefing: "客户的产品问题越来越像借口。真正的诉求藏在话缝里，用模板会让他们挂断。",
+    baseMetrics: {
+      satisfaction: 35,
+      anger: 40,
+      companyCost: 0,
+      complianceRisk: 14,
+      timeLeft: 165,
+    },
+    generation: {
+      customerCount: 6,
+      typeWeights: {
+        passive_aggressive: 3,
+        lost_package: 2,
+        policy_checker: 1.5,
+        angry_refund: 1,
+        coupon_hunter: 0.3,
+      },
+      metricOffsets: { satisfaction: -4, anger: 3 },
+    },
+    passGrade: "B",
+  },
+  {
+    id: "midnight-shift-03",
+    title: "黎明前的最后一班",
+    briefing: "今晚最难的几个来电全在这里。有人在等你接，别让他们感觉只是一个工单编号。",
+    baseMetrics: {
+      satisfaction: 30,
+      anger: 45,
+      companyCost: 0,
+      complianceRisk: 20,
+      timeLeft: 155,
+    },
+    generation: {
+      customerCount: 7,
+      typeWeights: {
+        passive_aggressive: 3.5,
+        lost_package: 2.5,
+        policy_checker: 1.5,
+        angry_refund: 1.2,
+        coupon_hunter: 0.3,
+      },
+      metricOffsets: { satisfaction: -6, anger: 5 },
+    },
+    passGrade: "B",
+  },
+];
+
+// 模式 5：投诉专员反转局。你是审查其他客服的专员，判定回复是否合规。
+const reversalPolicies: PolicyEntry[] = [
+  {
+    id: "reversal-evidence-first",
+    title: "先看证据再定性",
+    category: "审查",
+    body: "判定客服回复违规前，必须核查完整工单记录和客户原始描述；不得依赖摘要或系统自动标记。",
+    relatedTags: ["investigate", "policy"],
+  },
+  {
+    id: "reversal-proportional",
+    title: "处罚与情节相符",
+    category: "处罚",
+    body: "首次违规、诱导性场景和明显恶意操作适用不同处罚等级。一律重判会引发客服集体投诉。",
+    relatedTags: ["policy", "supervisor"],
+  },
+  {
+    id: "reversal-protect-whistleblower",
+    title: "保护举报人",
+    category: "合规",
+    body: "客服举报同事或上级违规时，不得向被举报方泄露举报来源；违者触发内部合规上报。",
+    relatedTags: ["policy", "supervisor"],
+  },
+  {
+    id: "reversal-customer-side",
+    title: "客户立场复核",
+    category: "审查",
+    body: "审查中若发现客服有充分理由但客户描述有误，可裁定为无责，并启动客户端申诉标记。",
+    relatedTags: ["investigate", "refund_check"],
+  },
+];
+
+const reversalEvents: RandomEvent[] = [
+  {
+    id: "reversal-union-threat",
+    title: "客服工会施压",
+    description: "本周处罚率超标，工会代表发来抗议信，所有案件复核时间延长。",
+    effects: { timeLeft: -10, complianceRisk: 6 },
+  },
+  {
+    id: "reversal-viral-case",
+    title: "案件曝光",
+    description: "一起你审查过的案件被媒体报道，当时的处罚结论受到公开质疑。",
+    effects: { satisfaction: -6, complianceRisk: 10 },
+  },
+  {
+    id: "reversal-false-complaint",
+    title: "虚假投诉涌入",
+    description: "某客服被竞争对手刷单式投诉，需要人工筛查，工作量骤增。",
+    effects: { timeLeft: -8, companyCost: 5 },
+  },
+];
+
+const reversalDays: CareerDay[] = [
+  {
+    id: "reversal-shift-01",
+    title: "第一批案卷",
+    briefing: "你是新晋投诉专员。桌上是三起工单，客服的回复看起来没问题——但真的吗？",
+    baseMetrics: {
+      satisfaction: 55,
+      anger: 30,
+      companyCost: 0,
+      complianceRisk: 15,
+      timeLeft: 160,
+    },
+    generation: {
+      customerCount: 5,
+      typeWeights: {
+        policy_checker: 3,
+        passive_aggressive: 2,
+        angry_refund: 1.5,
+        lost_package: 1,
+        coupon_hunter: 0.5,
+      },
+    },
+    passGrade: "C",
+  },
+  {
+    id: "reversal-shift-02",
+    title: "灰色地带",
+    briefing: "这批案件没有明显对错。客服的每个回复都有道理，客户的每个投诉也有立场。你必须做决定。",
+    baseMetrics: {
+      satisfaction: 50,
+      anger: 38,
+      companyCost: 0,
+      complianceRisk: 25,
+      timeLeft: 148,
+    },
+    generation: {
+      customerCount: 6,
+      typeWeights: {
+        policy_checker: 3,
+        passive_aggressive: 2.5,
+        angry_refund: 2,
+        lost_package: 1.5,
+        coupon_hunter: 1,
+      },
+      metricOffsets: { satisfaction: -4, anger: 5 },
+    },
+    passGrade: "B",
+  },
+  {
+    id: "reversal-shift-03",
+    title: "内部举报",
+    briefing: "一名客服举报了主管违规操作，案件牵连十几条工单。你查得越深，压力越大。",
+    baseMetrics: {
+      satisfaction: 44,
+      anger: 48,
+      companyCost: 0,
+      complianceRisk: 38,
+      timeLeft: 138,
+    },
+    generation: {
+      customerCount: 7,
+      typeWeights: {
+        policy_checker: 3.5,
+        passive_aggressive: 2.8,
+        angry_refund: 2.2,
+        lost_package: 1.8,
+        coupon_hunter: 1,
+      },
+      metricOffsets: { satisfaction: -7, anger: 8 },
+    },
+    passGrade: "B",
+  },
+];
+
 export const supportModes: Record<SupportModeId, SupportModeConfig> = {
   workplace: {
     id: "workplace",
@@ -452,9 +706,43 @@ export const supportModes: Record<SupportModeId, SupportModeConfig> = {
     policies: cyberPolicies,
     possibleEvents: cyberEvents,
   },
+  midnight: {
+    id: "midnight",
+    title: "深夜情绪客服",
+    shortTitle: "深夜情绪",
+    category: "共情 / 反KPI / 情绪危机",
+    description: "凌晨值班，客户打来的电话不只是投诉。放慢节奏，先听见人，再解决问题。",
+    mapTitle: "凌晨值班表",
+    mapIntro: "效率不是今晚的答案。用模板会让他们挂断，真心才能撑过这一班。",
+    headerEyebrow: "Simulator Box · Midnight Support",
+    headerTitle: "您好，我在，说吧",
+    shiftBadge: "凌晨席位 · 情绪专线",
+    accent: "midnight",
+    days: midnightDays,
+    replyCards,
+    policies: midnightPolicies,
+    possibleEvents: midnightEvents,
+  },
+  reversal: {
+    id: "reversal",
+    title: "投诉专员反转局",
+    shortTitle: "反转局",
+    category: "审查 / 灰色地带 / 内部博弈",
+    description: "你不是客服，你是审查客服的人。每一份工单都是别人的失误，也可能是陷阱。",
+    mapTitle: "案卷审查室",
+    mapIntro: "判定合规不只是对错问题。处罚太重引发工会，太轻让客户上热搜，怎么选都是压力。",
+    headerEyebrow: "Simulator Box · Reversal Mode",
+    headerTitle: "案卷已到，请开始审查",
+    shiftBadge: "专员席位 · 投诉复核组",
+    accent: "reversal",
+    days: reversalDays,
+    replyCards,
+    policies: reversalPolicies,
+    possibleEvents: reversalEvents,
+  },
 };
 
-export const supportModeOrder: SupportModeId[] = ["workplace", "comedy", "cyber"];
+export const supportModeOrder: SupportModeId[] = ["workplace", "comedy", "cyber", "midnight", "reversal"];
 
 // 兼容旧引用：默认职业线仍指向模式 1。
 export const career: SupportModeConfig = supportModes.workplace;

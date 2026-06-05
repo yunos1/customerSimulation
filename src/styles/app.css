@@ -2055,6 +2055,34 @@
   color: #4c428f;
 }
 
+.support-mode-card-midnight::before {
+  background: linear-gradient(90deg, #2a4a8a, #6b3fa0);
+}
+
+.support-mode-card-midnight .support-mode-icon {
+  border-color: rgba(42, 74, 138, 0.25);
+  background: rgba(220, 228, 255, 0.86);
+  color: #1e3570;
+}
+
+.support-mode-card-midnight .support-mode-copy p {
+  color: #1e3570;
+}
+
+.support-mode-card-reversal::before {
+  background: linear-gradient(90deg, #7a4f1a, #2a7a5a);
+}
+
+.support-mode-card-reversal .support-mode-icon {
+  border-color: rgba(122, 79, 26, 0.25);
+  background: rgba(255, 243, 220, 0.86);
+  color: #5a3a10;
+}
+
+.support-mode-card-reversal .support-mode-copy p {
+  color: #5a3a10;
+}
+
 .support-mode-copy h3 {
   color: var(--text-strong);
   font-size: 23px;
