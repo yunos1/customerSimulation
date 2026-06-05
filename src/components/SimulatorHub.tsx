@@ -7,6 +7,7 @@ import {
   Factory,
   Lock,
   MessageSquareText,
+  MicVocal,
   Sparkles,
   Store,
   Stethoscope,
@@ -22,6 +23,7 @@ interface SimulatorHubProps {
   totalDays: number;
   gradedDays: number;
   onLaunchSupport: () => void;
+  onLaunchInterview: () => void;
 }
 
 interface SimulatorCard {
@@ -30,7 +32,7 @@ interface SimulatorCard {
   category: string;
   description: string;
   status: "live" | "soon";
-  tone: "teal" | "red" | "amber" | "cyan";
+  tone: "teal" | "red" | "amber" | "cyan" | "violet";
   icon: LucideIcon;
   meta: string[];
 }
@@ -73,6 +75,7 @@ export function SimulatorHub({
   totalDays,
   gradedDays,
   onLaunchSupport,
+  onLaunchInterview,
 }: SimulatorHubProps) {
   const supportCard: SimulatorCard = {
     id: "customer-support",
@@ -85,7 +88,18 @@ export function SimulatorHub({
     meta: [`${unlockedDays}/${totalDays} 天解锁`, `${gradedDays} 天有评级`, "多会话压力"],
   };
 
-  const cards = [supportCard, ...upcomingSimulators];
+  const interviewCard: SimulatorCard = {
+    id: "interview-coach",
+    title: "模拟面试官",
+    category: "求职训练",
+    description: "选择岗位和难度，接受连续提问、追问、评分和复盘。",
+    status: "live",
+    tone: "violet",
+    icon: MicVocal,
+    meta: ["3 个岗位", "4 位面试官", "即时复盘"],
+  };
+
+  const cards = [supportCard, interviewCard, ...upcomingSimulators];
 
   return (
     <main className="hub-shell">
@@ -117,7 +131,7 @@ export function SimulatorHub({
           <div className="hub-readouts" aria-label="盒子状态">
             <span>
               <Zap size={16} aria-hidden="true" />
-              1 个可玩模块
+              2 个可玩模块
             </span>
             <span>
               <Timer size={16} aria-hidden="true" />
@@ -145,7 +159,13 @@ export function SimulatorHub({
             <SimulatorModuleCard
               card={card}
               key={card.id}
-              onLaunch={card.id === "customer-support" ? onLaunchSupport : undefined}
+              onLaunch={
+                card.id === "customer-support"
+                  ? onLaunchSupport
+                  : card.id === "interview-coach"
+                    ? onLaunchInterview
+                    : undefined
+              }
             />
           ))}
         </div>

@@ -10,6 +10,7 @@ import type { CareerMapDay } from "./components/CareerMap";
 import { CustomerStatus } from "./components/CustomerStatus";
 import { DaySummary } from "./components/DaySummary";
 import { KnowledgeBase } from "./components/KnowledgeBase";
+import { InterviewSimulator } from "./components/InterviewSimulator";
 import { Layout } from "./components/Layout";
 import { MetricsBar } from "./components/MetricsBar";
 import { ReplyDeck } from "./components/ReplyDeck";
@@ -24,7 +25,7 @@ export default function App() {
   // 职业进度持久化在 meta 层（独立于 per-run GameState，跨浏览器会话保存）。
   const { meta, selectDay, recordDayResult, resetCareer } = useMetaProgress();
   const { currentDayId, unlockedDayIds, bestGrades } = meta;
-  const [activeSimulator, setActiveSimulator] = useState<"hub" | "support">("hub");
+  const [activeSimulator, setActiveSimulator] = useState<"hub" | "support" | "interview">("hub");
   // career_map 是职业地图视图；进入某天后才创建 per-day 引擎 state。
   const [view, setView] = useState<"career_map" | "shift">("career_map");
 
@@ -133,6 +134,7 @@ export default function App() {
 
   const dismissUnlockToast = useCallback(() => setNewlyUnlockedCards([]), []);
   const launchSupportSimulator = useCallback(() => setActiveSimulator("support"), []);
+  const launchInterviewSimulator = useCallback(() => setActiveSimulator("interview"), []);
   const backToHub = useCallback(() => setActiveSimulator("hub"), []);
 
   const enterDay = useCallback(
@@ -220,8 +222,13 @@ export default function App() {
         totalDays={career.days.length}
         gradedDays={Object.keys(bestGrades).length}
         onLaunchSupport={launchSupportSimulator}
+        onLaunchInterview={launchInterviewSimulator}
       />
     );
+  }
+
+  if (activeSimulator === "interview") {
+    return <InterviewSimulator onBackToHub={backToHub} />;
   }
 
   return (
