@@ -136,10 +136,10 @@ function runReducer(state: GameState, action: GameAction): GameState {
       return openTimeoutAlert(state, action.sessionId);
 
     case "CHOOSE_REPLY":
-      return chooseReply(state, action.cardId);
+      return chooseReply(state, action.cardId, action.sessionId, action.aiReactionLine);
 
     case "SUBMIT_FREE_REPLY":
-      return submitFreeReply(state, action.text);
+      return submitFreeReply(state, action.text, action.sessionId, action.aiReactionLine);
 
     case "RESTART_DAY":
       // 重试当前天：由调用方传入要重置到的 level（不再硬编码 activeDay）。
@@ -153,6 +153,10 @@ function runReducer(state: GameState, action: GameAction): GameState {
 
 export function getActiveSession(state: GameState) {
   return state.sessions.find((session) => session.id === state.activeSessionId);
+}
+
+function getSessionById(state: GameState, sessionId: string) {
+  return state.sessions.find((session) => session.id === sessionId);
 }
 
 function startDay(state: GameState, seed: number): GameState {
@@ -292,12 +296,17 @@ function openTimeoutAlert(state: GameState, sessionId: string): GameState {
   };
 }
 
-function chooseReply(state: GameState, cardId: string): GameState {
+function chooseReply(
+  state: GameState,
+  cardId: string,
+  sessionId?: string,
+  aiReactionLine?: string,
+): GameState {
   if (state.phase !== "player_reply") {
     return state;
   }
 
-  const session = getActiveSession(state);
+  const session = sessionId ? getSessionById(state, sessionId) : getActiveSession(state);
 
   if (!session || session.status !== "active") {
     return state;
@@ -309,22 +318,27 @@ function chooseReply(state: GameState, cardId: string): GameState {
     return state;
   }
 
-  return answerSession(state, session, card, false);
+  return answerSession(state, session, card, false, aiReactionLine);
 }
 
-function submitFreeReply(state: GameState, text: string): GameState {
+function submitFreeReply(
+  state: GameState,
+  text: string,
+  sessionId?: string,
+  aiReactionLine?: string,
+): GameState {
   if (state.phase !== "player_reply") {
     return state;
   }
 
   const trimmedText = text.trim();
-  const session = getActiveSession(state);
+  const session = sessionId ? getSessionById(state, sessionId) : getActiveSession(state);
 
   if (!trimmedText || !session || session.status !== "active") {
     return state;
   }
 
-  return answerSession(state, session, buildFreeReplyCard(trimmedText), true);
+  return answerSession(state, session, buildFreeReplyCard(trimmedText), true, aiReactionLine);
 }
 
 function answerSession(
@@ -332,6 +346,7 @@ function answerSession(
   session: CustomerSession,
   card: ReplyCard,
   isFreeReply: boolean,
+  aiReactionLine?: string,
 ): GameState {
   const round = getActiveRound(session.customer, session.activeRoundIndex);
   const nextRoundIndex = session.activeRoundIndex + 1;
@@ -354,13 +369,15 @@ function answerSession(
     ...nextMetrics,
     ...nextSessionMetrics,
   };
-  const reactionLine = getReactionLine(
-    session.customer,
-    round,
-    card,
-    reactionKind,
-    messageCounter + session.elapsedSeconds + nextRoundIndex,
-  );
+  const reactionLine =
+    normalizeAiReactionLine(aiReactionLine) ??
+    getReactionLine(
+      session.customer,
+      round,
+      card,
+      reactionKind,
+      messageCounter + session.elapsedSeconds + nextRoundIndex,
+    );
   const outcome = maybeBuildOutcome(
     session.customer,
     round,
@@ -730,6 +747,16 @@ function countActiveSessions(sessions: CustomerSession[]) {
 
 function replaceSession(sessions: CustomerSession[], nextSession: CustomerSession) {
   return sessions.map((session) => (session.id === nextSession.id ? nextSession : session));
+}
+
+function normalizeAiReactionLine(line?: string) {
+  const trimmedLine = line?.trim();
+
+  if (!trimmedLine) {
+    return undefined;
+  }
+
+  return trimmedLine.length > 180 ? `${trimmedLine.slice(0, 180)}...` : trimmedLine;
 }
 
 function getPreferredSessionId(sessions: CustomerSession[], currentSessionId?: string) {

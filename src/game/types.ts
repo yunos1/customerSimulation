@@ -287,6 +287,6 @@ export type GameAction =
   | { type: "TICK"; seed: number }
   | { type: "SELECT_SESSION"; sessionId: string }
   | { type: "OPEN_TIMEOUT_ALERT"; sessionId: string }
-  | { type: "CHOOSE_REPLY"; cardId: string }
-  | { type: "SUBMIT_FREE_REPLY"; text: string }
+  | { type: "CHOOSE_REPLY"; cardId: string; sessionId?: string; aiReactionLine?: string }
+  | { type: "SUBMIT_FREE_REPLY"; text: string; sessionId?: string; aiReactionLine?: string }
   | { type: "RESTART_DAY"; level: LevelConfig; seed: number };

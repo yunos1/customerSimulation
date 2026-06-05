@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { buildLevelConfig, career, getCareerDay, getNextDayId, isPassingGrade } from "./content/career";
+import { requestAiCustomerReply } from "./game/aiCustomerReply";
 import { createInitialState, gameReducer, getActiveSession } from "./game/reducer";
 import { useMetaProgress } from "./hooks/useMetaProgress";
 import type { UnlockableCard } from "./game/types";
@@ -36,6 +37,7 @@ export default function App() {
   );
   const [state, dispatch] = useReducer(gameReducer, initialState);
   const [scrollTargetSessionId, setScrollTargetSessionId] = useState<string>();
+  const [pendingReplySessionId, setPendingReplySessionId] = useState<string>();
   // 本次新解锁、待 toast 展示的高级卡。
   const [newlyUnlockedCards, setNewlyUnlockedCards] = useState<UnlockableCard[]>([]);
   // 防止 summary 阶段的重复渲染多次记录成绩。
@@ -167,10 +169,43 @@ export default function App() {
     (sessionId: string) => dispatch({ type: "SELECT_SESSION", sessionId }),
     [],
   );
-  const handleChoose = useCallback((cardId: string) => dispatch({ type: "CHOOSE_REPLY", cardId }), []);
+  const handleChoose = useCallback(
+    (cardId: string) => {
+      const session = getActiveSession(state);
+
+      if (state.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
+        return;
+      }
+
+      setPendingReplySessionId(session.id);
+      void requestAiCustomerReply(state, session, { kind: "card", cardId })
+        .then((aiReactionLine) => {
+          dispatch({ type: "CHOOSE_REPLY", cardId, sessionId: session.id, aiReactionLine });
+        })
+        .finally(() => {
+          setPendingReplySessionId((currentId) => (currentId === session.id ? undefined : currentId));
+        });
+    },
+    [pendingReplySessionId, state],
+  );
   const handleSubmitFreeReply = useCallback(
-    (text: string) => dispatch({ type: "SUBMIT_FREE_REPLY", text }),
-    [],
+    (text: string) => {
+      const session = getActiveSession(state);
+
+      if (state.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
+        return;
+      }
+
+      setPendingReplySessionId(session.id);
+      void requestAiCustomerReply(state, session, { kind: "free", text })
+        .then((aiReactionLine) => {
+          dispatch({ type: "SUBMIT_FREE_REPLY", text, sessionId: session.id, aiReactionLine });
+        })
+        .finally(() => {
+          setPendingReplySessionId((currentId) => (currentId === session.id ? undefined : currentId));
+        });
+    },
+    [pendingReplySessionId, state],
   );
   const handleRetry = useCallback(() => {
     recordedSummaryRef.current = undefined;
@@ -269,8 +304,12 @@ export default function App() {
           <ReplyDeck
             cards={activeLevel.replyCards}
             disabled={
-              view !== "shift" || state.phase !== "player_reply" || activeSession?.status !== "active"
+              view !== "shift" ||
+              state.phase !== "player_reply" ||
+              activeSession?.status !== "active" ||
+              Boolean(pendingReplySessionId)
             }
+            isThinking={Boolean(pendingReplySessionId)}
             onChoose={handleChoose}
             onSubmitFreeReply={handleSubmitFreeReply}
           />

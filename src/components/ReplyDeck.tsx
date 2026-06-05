@@ -16,6 +16,7 @@ import type { ReplyCard } from "../game/types";
 interface ReplyDeckProps {
   cards: ReplyCard[];
   disabled: boolean;
+  isThinking?: boolean;
   onChoose: (cardId: string) => void;
   onSubmitFreeReply: (text: string) => void;
 }
@@ -37,6 +38,7 @@ const iconMap = {
 export const ReplyDeck = memo(function ReplyDeck({
   cards,
   disabled,
+  isThinking = false,
   onChoose,
   onSubmitFreeReply,
 }: ReplyDeckProps) {
@@ -72,7 +74,7 @@ export const ReplyDeck = memo(function ReplyDeck({
           />
           <button className="primary-button" disabled={disabled || !freeReply.trim()} type="submit">
             <SendHorizontal size={17} aria-hidden="true" />
-            发送
+            {isThinking ? "分析中" : "发送"}
           </button>
         </form>
 
