@@ -13,6 +13,7 @@ import { KnowledgeBase } from "./components/KnowledgeBase";
 import { Layout } from "./components/Layout";
 import { MetricsBar } from "./components/MetricsBar";
 import { ReplyDeck } from "./components/ReplyDeck";
+import { SimulatorHub } from "./components/SimulatorHub";
 import { TimeoutAlerts } from "./components/TimeoutAlerts";
 import { UnlockToast } from "./components/UnlockToast";
 import { unlockableCards } from "./content/unlockableCards";
@@ -23,6 +24,7 @@ export default function App() {
   // 职业进度持久化在 meta 层（独立于 per-run GameState，跨浏览器会话保存）。
   const { meta, selectDay, recordDayResult, resetCareer } = useMetaProgress();
   const { currentDayId, unlockedDayIds, bestGrades } = meta;
+  const [activeSimulator, setActiveSimulator] = useState<"hub" | "support">("hub");
   // career_map 是职业地图视图；进入某天后才创建 per-day 引擎 state。
   const [view, setView] = useState<"career_map" | "shift">("career_map");
 
@@ -54,7 +56,12 @@ export default function App() {
     : state.metrics;
 
   useEffect(() => {
-    if (view !== "shift" || state.phase === "intro" || state.phase === "summary") {
+    if (
+      activeSimulator !== "support" ||
+      view !== "shift" ||
+      state.phase === "intro" ||
+      state.phase === "summary"
+    ) {
       return undefined;
     }
 
@@ -63,7 +70,7 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [state.phase, view]);
+  }, [activeSimulator, state.phase, view]);
 
   useEffect(() => {
     if (!scrollTargetSessionId || activeSession?.id !== scrollTargetSessionId) {
@@ -125,6 +132,8 @@ export default function App() {
   }, [meta.unlockedCardIds]);
 
   const dismissUnlockToast = useCallback(() => setNewlyUnlockedCards([]), []);
+  const launchSupportSimulator = useCallback(() => setActiveSimulator("support"), []);
+  const backToHub = useCallback(() => setActiveSimulator("hub"), []);
 
   const enterDay = useCallback(
     (dayId: string) => {
@@ -204,8 +213,20 @@ export default function App() {
       : false;
   const hasNextDay = Boolean(getNextDayId(currentDayId));
 
+  if (activeSimulator === "hub") {
+    return (
+      <SimulatorHub
+        unlockedDays={unlockedDayIds.length}
+        totalDays={career.days.length}
+        gradedDays={Object.keys(bestGrades).length}
+        onLaunchSupport={launchSupportSimulator}
+      />
+    );
+  }
+
   return (
     <Layout
+      onBackToHub={backToHub}
       metrics={<MetricsBar metrics={visibleMetrics} phase={state.phase} />}
       chat={
         view === "career_map" ? (
