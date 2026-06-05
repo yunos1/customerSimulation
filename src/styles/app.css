@@ -38,6 +38,32 @@
     linear-gradient(150deg, transparent 74%, rgba(17, 133, 123, 0.08) 75%, transparent 76%);
 }
 
+.app-shell-comedy::before {
+  background:
+    linear-gradient(90deg, rgba(242, 165, 64, 0.07) 1px, transparent 1px),
+    linear-gradient(rgba(31, 142, 163, 0.06) 1px, transparent 1px),
+    linear-gradient(115deg, transparent 10%, rgba(201, 75, 87, 0.08) 10.4%, transparent 11%),
+    linear-gradient(145deg, rgba(255, 252, 244, 0.98), rgba(240, 248, 246, 0.94) 54%, rgba(249, 239, 244, 0.94));
+  background-size:
+    34px 34px,
+    34px 34px,
+    auto,
+    auto;
+}
+
+.app-shell-cyber::before {
+  background:
+    linear-gradient(90deg, rgba(107, 91, 214, 0.06) 1px, transparent 1px),
+    linear-gradient(rgba(31, 142, 163, 0.07) 1px, transparent 1px),
+    linear-gradient(120deg, transparent 9%, rgba(17, 133, 123, 0.1) 9.4%, transparent 10%),
+    linear-gradient(145deg, rgba(238, 245, 247, 0.98), rgba(239, 242, 252, 0.94) 52%, rgba(235, 249, 244, 0.94));
+  background-size:
+    32px 32px,
+    32px 32px,
+    auto,
+    auto;
+}
+
 .hub-shell {
   position: relative;
   width: min(1480px, calc(100% - 32px));
@@ -1936,6 +1962,133 @@
 .secondary-button:focus-visible {
   outline: 3px solid rgba(31, 142, 163, 0.24);
   outline-offset: 2px;
+}
+
+.support-mode-panel {
+  overflow: hidden;
+}
+
+.support-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.support-mode-card {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-height: 340px;
+  overflow: hidden;
+  border: 1px solid rgba(70, 118, 110, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 248, 244, 0.78)),
+    rgba(248, 253, 249, 0.88);
+  padding: 15px;
+  box-shadow: 0 16px 36px rgba(19, 60, 55, 0.1);
+}
+
+.support-mode-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: linear-gradient(90deg, var(--accent), rgba(31, 142, 163, 0.34));
+  content: "";
+}
+
+.support-mode-card-comedy::before {
+  background: linear-gradient(90deg, #cf6e2a, #1f8ea3);
+}
+
+.support-mode-card-cyber::before {
+  background: linear-gradient(90deg, #6b5bd6, #11857b);
+}
+
+.support-mode-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(31, 142, 163, 0.24);
+  border-radius: 8px;
+  background: rgba(226, 244, 242, 0.82);
+  color: #124f5c;
+}
+
+.support-mode-card-comedy .support-mode-icon {
+  border-color: rgba(207, 110, 42, 0.26);
+  background: rgba(255, 239, 218, 0.86);
+  color: #8d4c2c;
+}
+
+.support-mode-card-cyber .support-mode-icon {
+  border-color: rgba(107, 91, 214, 0.25);
+  background: rgba(237, 240, 255, 0.86);
+  color: #4c428f;
+}
+
+.support-mode-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.support-mode-copy p,
+.support-mode-copy h3,
+.support-mode-copy span {
+  margin: 0;
+}
+
+.support-mode-copy p {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.support-mode-card-comedy .support-mode-copy p {
+  color: #8d4c2c;
+}
+
+.support-mode-card-cyber .support-mode-copy p {
+  color: #4c428f;
+}
+
+.support-mode-copy h3 {
+  color: var(--text-strong);
+  font-size: 23px;
+  line-height: 1.15;
+}
+
+.support-mode-copy span {
+  color: var(--muted-strong);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.support-mode-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: auto;
+}
+
+.support-mode-progress span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(70, 118, 110, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 6px 8px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.support-mode-button {
+  width: 100%;
 }
 
 .summary-actions {
@@ -4654,6 +4807,10 @@
     grid-template-columns: repeat(3, 1fr);
   }
 
+  .support-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
   .roster-workspace {
     grid-template-columns: 1fr;
   }
@@ -4893,6 +5050,7 @@
     .question-card-list,
     .decision-choice-grid,
     .decision-evidence-grid,
+    .support-mode-grid,
     .reply-grid,
     .free-reply-form,
     .summary-metrics,

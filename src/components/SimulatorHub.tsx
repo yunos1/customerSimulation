@@ -4,6 +4,7 @@ import {
   Boxes,
   Briefcase,
   CirclePlay,
+  Factory,
   Lock,
   MessageSquareText,
   MicVocal,
@@ -40,24 +41,14 @@ interface SimulatorCard {
 
 const upcomingSimulators: SimulatorCard[] = [
   {
-    id: "shift-roster",
-    title: "门店排班模拟器",
-    category: "零售运营",
-    description: "客流高峰、库存缺口、临时请假同时压上桌面。",
+    id: "factory-dispatch",
+    title: "厂房调度模拟器",
+    category: "生产调度",
+    description: "设备产能、交期压力和临时插单一起挤进排产板。",
     status: "soon",
-    tone: "red",
-    icon: Store,
-    meta: ["客流峰值", "人员疲劳", "库存风险"],
-  },
-  {
-    id: "clinic-triage",
-    title: "诊室分诊模拟器",
-    category: "公共服务",
-    description: "把有限窗口留给最急的人，也要稳住等待区情绪。",
-    status: "soon",
-    tone: "cyan",
-    icon: Stethoscope,
-    meta: ["优先级", "等待情绪", "资源分配"],
+    tone: "amber",
+    icon: Factory,
+    meta: ["产能瓶颈", "交期风险", "插单冲突"],
   },
 ];
 
@@ -121,6 +112,8 @@ export function SimulatorHub({
     interviewCard,
     ...upcomingSimulators.filter((card) => card.id !== "shift-roster" && card.id !== "clinic-triage"),
   ];
+  const liveModuleCount = cards.filter((card) => card.status === "live").length;
+  const upcomingModuleCount = cards.filter((card) => card.status === "soon").length;
 
   return (
     <main className="hub-shell">
@@ -135,7 +128,7 @@ export function SimulatorHub({
           </p>
           <h1 id="hub-title">把一整排人生压力插进同一个盒子</h1>
           <p className="hub-hero-lede">
-            从客服席位开始，后面继续接入门店、厂房、诊室和更多离谱但真实的模拟现场。
+            从客服席位启程，穿过门店、诊室与面试间的灯火；厂房的轰鸣在下一格等待亮起。
           </p>
 
           <div className="hub-actions">
@@ -152,11 +145,11 @@ export function SimulatorHub({
           <div className="hub-readouts" aria-label="盒子状态">
             <span>
               <Zap size={16} aria-hidden="true" />
-              2 个可玩模块
+              {liveModuleCount} 个可玩模块
             </span>
             <span>
               <Timer size={16} aria-hidden="true" />
-              3 个扩展插槽
+              {upcomingModuleCount} 个扩展插槽
             </span>
             <span>
               <Trophy size={16} aria-hidden="true" />

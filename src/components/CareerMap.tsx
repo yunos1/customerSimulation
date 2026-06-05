@@ -11,6 +11,8 @@ export interface CareerMapDay {
 
 interface CareerMapProps {
   days: CareerMapDay[];
+  title?: string;
+  intro?: string;
   onSelectDay: (dayId: string) => void;
   /** 重置整条生涯进度（清空解锁与最佳评级）。 */
   onResetCareer?: () => void;
@@ -18,6 +20,8 @@ interface CareerMapProps {
 
 export const CareerMap = memo(function CareerMap({
   days,
+  title = "转正之路",
+  intro = "从实习到转正考核，难度逐天提升。达到每天的过关评级才能解锁下一天。",
   onSelectDay,
   onResetCareer,
 }: CareerMapProps) {
@@ -28,7 +32,7 @@ export const CareerMap = memo(function CareerMap({
       <div className="panel-header">
         <div>
           <p className="eyebrow">职业进度</p>
-          <h2>转正之路</h2>
+          <h2>{title}</h2>
         </div>
         {onResetCareer && hasProgress ? (
           <button
@@ -43,7 +47,7 @@ export const CareerMap = memo(function CareerMap({
       </div>
 
       <p className="career-map-intro">
-        从实习到转正考核，难度逐天提升。达到每天的过关评级才能解锁下一天。
+        {intro}
       </p>
 
       <ol className="career-day-list">

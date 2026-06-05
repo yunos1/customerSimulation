@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   defaultMeta,
   evaluateUnlocks,
+  getModeProgress,
   loadMeta,
   migrate,
   recordDayResult,
   saveMeta,
 } from "./meta";
 import type { DayResult, MetaState } from "./meta";
-import { career } from "../content/career";
+import { career, supportModes } from "../content/career";
 import { unlockableCards } from "../content/unlockableCards";
 
 // meta 是元进度纯逻辑 + 薄 localStorage 边界。
@@ -17,6 +18,8 @@ import { unlockableCards } from "../content/unlockableCards";
 const day1 = career.days[0].id; // internship-day-01, passGrade C
 const day2 = career.days[1].id; // internship-day-02, passGrade B
 const day3 = career.days[2].id; // conversion-exam
+const comedyDay1 = supportModes.comedy.days[0].id;
+const comedyDay2 = supportModes.comedy.days[1].id;
 
 function makeResult(overrides: Partial<DayResult> = {}): DayResult {
   return {
@@ -34,9 +37,12 @@ describe("defaultMeta", () => {
   it("初始只解锁第 1 天，无最佳评级与记录", () => {
     const meta = defaultMeta();
 
+    expect(meta.activeModeId).toBe("workplace");
     expect(meta.currentDayId).toBe(day1);
     expect(meta.unlockedDayIds).toEqual([day1]);
     expect(meta.bestGrades).toEqual({});
+    expect(getModeProgress(meta, "comedy").unlockedDayIds).toEqual([comedyDay1]);
+    expect(getModeProgress(meta, "cyber").unlockedDayIds).toEqual([supportModes.cyber.days[0].id]);
     expect(meta.lifetimeAchievements).toEqual([]);
     expect(meta.records.totalRuns).toBe(0);
     expect(meta.unlockedCardIds).toEqual([]);
@@ -114,7 +120,18 @@ describe("recordDayResult", () => {
     const base = defaultMeta();
     const meta = recordDayResult(base, makeResult({ dayId: "no-such-day" }));
 
-    expect(meta).toBe(base);
+    expect(meta).toEqual(base);
+  });
+
+  it("不同模式的天数解锁互不污染", () => {
+    const meta = recordDayResult(
+      defaultMeta(),
+      makeResult({ modeId: "comedy", dayId: comedyDay1, grade: "B" }),
+    );
+
+    expect(getModeProgress(meta, "comedy").unlockedDayIds).toContain(comedyDay2);
+    expect(getModeProgress(meta, "workplace").unlockedDayIds).toEqual([day1]);
+    expect(meta.currentDayId).toBe(comedyDay1);
   });
 
   it("最后一天过关不会越界解锁（无下一天）", () => {
@@ -151,38 +168,83 @@ describe("migrate", () => {
   it("当前版本有效数据原样回填", () => {
     const data: MetaState = {
       ...defaultMeta(),
-      currentDayId: day2,
-      unlockedDayIds: [day1, day2],
-      bestGrades: { [day1]: "A" },
+      activeModeId: "comedy",
+      modes: {
+        ...defaultMeta().modes,
+        comedy: {
+          currentDayId: comedyDay2,
+          unlockedDayIds: [comedyDay1, comedyDay2],
+          bestGrades: { [comedyDay1]: "A" },
+        },
+      },
     };
 
-    const result = migrate({ version: 1, data });
+    const result = migrate({ version: 2, data });
 
-    expect(result.currentDayId).toBe(day2);
-    expect(result.unlockedDayIds).toEqual([day1, day2]);
-    expect(result.bestGrades).toEqual({ [day1]: "A" });
+    expect(result.activeModeId).toBe("comedy");
+    expect(result.currentDayId).toBe(comedyDay2);
+    expect(result.unlockedDayIds).toEqual([comedyDay1, comedyDay2]);
+    expect(result.bestGrades).toEqual({ [comedyDay1]: "A" });
   });
 
   it("部分字段损坏 → 该字段回退默认，其余保留", () => {
     const data = {
       ...defaultMeta(),
+      activeModeId: "comedy",
+      modes: {
+        comedy: {
+          currentDayId: comedyDay2,
+          bestGrades: { [comedyDay1]: "X" }, // 非法 Grade
+          unlockedDayIds: "not-an-array",
+        },
+      },
+    };
+
+    const result = migrate({ version: 2, data });
+
+    expect(result.currentDayId).toBe(comedyDay2); // 有效字段保留
+    expect(result.bestGrades).toEqual({}); // 非法 grade record 回退
+    expect(result.unlockedDayIds).toEqual([comedyDay1]); // 非数组回退
+  });
+
+  it("空 unlockedDayIds 数组回退默认（至少第1天可玩）", () => {
+    const data = {
+      ...defaultMeta(),
+      modes: {
+        ...defaultMeta().modes,
+        workplace: {
+          currentDayId: day1,
+          unlockedDayIds: [],
+          bestGrades: {},
+        },
+      },
+    };
+    const result = migrate({ version: 2, data });
+
+    expect(result.unlockedDayIds).toEqual([day1]);
+  });
+
+  it("v1 扁平存档迁移到真实职场模式", () => {
+    const data = {
       currentDayId: day2,
-      bestGrades: { [day1]: "X" }, // 非法 Grade
-      unlockedDayIds: "not-an-array",
+      unlockedDayIds: [day1, day2],
+      bestGrades: { [day1]: "A" },
+      lifetimeAchievements: ["first-save"],
+      records: {
+        totalRuns: 1,
+        totalResolved: 4,
+        totalComplaints: 0,
+        bestSatisfaction: 80,
+      },
+      unlockedCardIds: [],
     };
 
     const result = migrate({ version: 1, data });
 
-    expect(result.currentDayId).toBe(day2); // 有效字段保留
-    expect(result.bestGrades).toEqual({}); // 非法 grade record 回退
-    expect(result.unlockedDayIds).toEqual([day1]); // 非数组回退
-  });
-
-  it("空 unlockedDayIds 数组回退默认（至少第1天可玩）", () => {
-    const data = { ...defaultMeta(), unlockedDayIds: [] };
-    const result = migrate({ version: 1, data });
-
-    expect(result.unlockedDayIds).toEqual([day1]);
+    expect(result.activeModeId).toBe("workplace");
+    expect(getModeProgress(result, "workplace").currentDayId).toBe(day2);
+    expect(getModeProgress(result, "workplace").unlockedDayIds).toEqual([day1, day2]);
+    expect(getModeProgress(result, "comedy").unlockedDayIds).toEqual([comedyDay1]);
   });
 });
 

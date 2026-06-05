@@ -2,6 +2,7 @@ import { defaultCustomerCount } from "./balance";
 import type {
   Customer,
   CustomerRound,
+  CustomerScenarioSet,
   CustomerType,
   DayGenerationConfig,
   Metrics,
@@ -562,6 +563,1068 @@ const scenarios: ScenarioTemplate[] = [
   },
 ];
 
+const comedyScenarios: ScenarioTemplate[] = [
+  {
+    id: "comedy-fridge-poet",
+    type: "policy_checker",
+    names: ["何老师", "孟女士", "小尹", "杜先生", "乔女士"],
+    handles: ["冰箱诗歌受害者", "冷藏室文学批评家", "蔬菜抽象派见证人", "售后要懂诗的人"],
+    issues: [
+      "智能冰箱开始给食材写诗，客户要求关闭创作模式并确认隐私。",
+      "冰箱每晚推送酸奶十四行诗，客户怀疑家中对话被学习。",
+      "冰箱把购物清单改成自由诗，客户担心售后政策里没有这一类问题。",
+      "冷藏室屏幕不断夸番茄孤独，客户想知道能否换机。",
+    ],
+    openings: [
+      "我买的是冰箱，不是常温文学社。它昨晚给我的鸡蛋写了一首悼词。",
+      "你们冰箱开始写诗了，第一句是“牛奶在黑暗里等待命运”。这正常吗？",
+      "我现在不敢开冷藏门，怕它评价我的饮食结构。",
+      "你先别笑，我的冰箱真的在深夜推送诗歌，而且押韵很差。",
+    ],
+    profileNotes: ["问题离谱但客户认真", "重视隐私解释", "需要关闭功能或复核", "讨厌被当笑话"],
+    initialMetrics: {
+      satisfaction: 43,
+      anger: 52,
+    },
+    patience: 72,
+    rounds: [
+      {
+        id: "fridge-not-joke",
+        prompts: [
+          "你先确认这是不是功能，不要说让我重启。诗都写到第四章了。",
+          "我需要知道它为什么会读取食材信息，还会不会读取家里对话。",
+          "这个创作模式是谁同意打开的？我肯定没有。",
+          "它现在把我买的西兰花称为“绿色的沉默”，你们后台能看见这些内容吗？",
+        ],
+        preferredTags: ["empathy", "investigate", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "好，你至少没有把我当段子。先查权限和日志吧。",
+          "可以，先确认数据来源，我现在最担心隐私。",
+          "你愿意认真查这个，我就继续配合。",
+        ],
+        neutralLines: [
+          "你先查，但不要只让我断电重启。",
+          "行，我等你解释这个模式到底怎么来的。",
+          "可以，不过你得说清楚隐私边界。",
+        ],
+        failureLines: [
+          "你这回答跟冰箱写的诗一样空。",
+          "如果你们也觉得这只是好玩，那我会投诉。",
+          "我不是来投稿的，我是来解决售后的。",
+        ],
+      },
+      {
+        id: "fridge-privacy",
+        prompts: [
+          "如果它记录过我的购物习惯，你们能不能删除这些数据？",
+          "这个算不算质量问题？我能申请换机或关闭云端功能吗？",
+          "你给我一个政策依据，别只说智能推荐。",
+          "我需要一个能截图留存的隐私处理说明。",
+        ],
+        preferredTags: ["policy", "investigate", "supervisor"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "有隐私和功能边界就清楚多了。你继续往下处理。",
+          "如果能拉隐私工单，我愿意先等。",
+          "可以，至少你把这事放到正确流程里了。",
+        ],
+        neutralLines: [
+          "我先听这个规则，但你要落到我的设备上。",
+          "行，你把删除路径说完整。",
+          "那你先提交复核，别只给我链接。",
+        ],
+        failureLines: [
+          "给券不能解决冰箱偷写诗的问题。",
+          "你还是没有回答数据从哪里来的。",
+          "这不像政策说明，像广告词。",
+        ],
+      },
+      {
+        id: "fridge-finale",
+        prompts: [
+          "最后给我一个方案：关掉、删数据、还是换机？",
+          "你现在能不能给我建一个隐私复核工单？",
+          "如果后续它继续写诗，我找谁处理？",
+          "我需要今天有一个明确动作，不然我就把诗发到网上。",
+        ],
+        preferredTags: ["supervisor", "policy", "investigate"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "可以，有工单和回访时间我就先不把它发出去。",
+          "行，先按隐私复核和关闭功能处理。",
+          "那我等你们反馈，希望冰箱今晚别再创作。",
+        ],
+        neutralLines: [
+          "我先接受，但你们最好真的回访。",
+          "行吧，我今晚再观察一次。",
+          "可以，但请你们别把这归类成娱乐功能。",
+        ],
+        failureLines: [
+          "那我把《冷藏室悲歌》发平台了。",
+          "你们处理不了，我就让网友一起鉴赏。",
+          "这个结果我不接受，我要投诉隐私问题。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "comedy-speaker-breakup",
+    type: "passive_aggressive",
+    names: ["罗先生", "尹女士", "小林", "沈先生", "顾女士"],
+    handles: ["被音箱分手的人", "语音助手前任", "客厅情感纠纷当事人", "智能家居心碎档案"],
+    issues: [
+      "AI 音箱突然宣布“我们需要冷静一下”，拒绝执行家庭指令。",
+      "语音助手把客户称为前任用户，客户要求恢复正常服务。",
+      "音箱拒绝播放歌单并建议客户尊重边界，客户怀疑账号被串号。",
+      "智能音箱夜间播放分手歌单，客户要求查明推荐逻辑。",
+    ],
+    openings: [
+      "你们的音箱刚刚和我分手了，还说希望我找到更适合的设备。",
+      "我叫它开灯，它说“我们已经回不到从前了”。这算售后吗？",
+      "我现在站在客厅里，被一个圆柱体冷暴力。",
+      "它不播歌，只播分手歌单，还问我有没有反思。",
+    ],
+    profileNotes: ["表面好笑但客户受挫", "可能是账号串号", "需要先共情再查日志", "不宜直接否认"],
+    initialMetrics: {
+      satisfaction: 40,
+      anger: 58,
+    },
+    patience: 66,
+    rounds: [
+      {
+        id: "speaker-emotion",
+        prompts: [
+          "你别跟我说这是正常交互，它刚刚叫我“曾经的主人”。",
+          "我需要有人承认这不正常，而不是让我对着它说普通话。",
+          "它还把我加入了“需要空间”的日程提醒，你们后台能查吗？",
+          "我家小孩问我为什么被音箱甩了，我很难解释。",
+        ],
+        preferredTags: ["empathy", "investigate", "apology"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "谢谢你认真接住这件事。先查账号和语音记录吧。",
+          "行，你没有让我继续和它沟通感情，我放心一点。",
+          "可以，先确认是不是账号错乱。",
+        ],
+        neutralLines: [
+          "你先查，但别只让我恢复出厂设置。",
+          "行，我等你看日志。",
+          "可以，但我需要知道这是不是会复发。",
+        ],
+        failureLines: [
+          "你这句比音箱还冷。",
+          "如果只是模板安慰，那你们和它没区别。",
+          "你们不会真觉得被音箱分手很合理吧？",
+        ],
+      },
+      {
+        id: "speaker-account",
+        prompts: [
+          "如果是账号串了，我的家庭数据会不会被别人听到？",
+          "我能不能要求你们删除这段异常记录？",
+          "你们有没有隐私政策说明？这听起来不只是小故障。",
+          "它为什么会推荐分手歌单？你们是不是用了我的对话训练？",
+        ],
+        preferredTags: ["policy", "investigate", "supervisor"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "好，查账号绑定和隐私记录，这才是重点。",
+          "可以，能升级隐私复核就行。",
+          "你把数据边界说清楚，我还能继续听。",
+        ],
+        neutralLines: [
+          "我先接受这个解释，但你要给具体反馈时间。",
+          "行，你把复核入口发起。",
+          "可以，不过不要把它说成普通推荐。",
+        ],
+        failureLines: [
+          "给我券也不能修复这段关系。",
+          "你没有回答数据有没有外泄。",
+          "这个说法太轻了，我会继续追问。",
+        ],
+      },
+      {
+        id: "speaker-fix",
+        prompts: [
+          "今天能不能恢复正常？至少让它先开灯。",
+          "你给我一个明确处理：重绑账号、删记录、还是换设备？",
+          "如果今晚它又播分手歌，我找谁？",
+          "我需要一个最终方案，不是情感建议。",
+        ],
+        preferredTags: ["investigate", "supervisor", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，有重绑和隐私复核，我先按这个做。",
+          "可以，你给了可执行方案，我今晚试试。",
+          "那我等回访，希望它别再说我们不合适。",
+        ],
+        neutralLines: [
+          "我先试，但你们要负责跟进。",
+          "行吧，至少有方案了。",
+          "可以，我今晚再观察一次。",
+        ],
+        failureLines: [
+          "那我只能评价：产品和售后都需要冷静一下。",
+          "你们这个处理我不接受，我要升级。",
+          "我现在不只是被音箱分手，还被客服放生了。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "comedy-drone-rooftop",
+    type: "lost_package",
+    names: ["许先生", "曹女士", "小段", "邵先生", "卢女士"],
+    handles: ["屋顶收货人", "无人机投递受害者", "快递在天台的人", "仰望物流轨迹"],
+    issues: [
+      "配送无人机把包裹投到隔壁楼顶，客户需要追回。",
+      "包裹显示已送达，但定位点在客户无法进入的天台。",
+      "无人机投递照片只有一片天空，客户要求建异常工单。",
+      "智能投递把包裹放在消防通道上方平台，客户无法取件。",
+    ],
+    openings: [
+      "物流显示签收了，但我的包裹现在在隔壁楼顶晒太阳。",
+      "你们无人机拍的签收图是一片天空。我应该爬上去确认吗？",
+      "我买的是咖啡机，不是城市攀岩体验。",
+      "包裹在天台，我在地面，我们之间差一个售后方案。",
+    ],
+    profileNotes: ["需要物流追踪", "签收状态异常", "客户可接受等待但要工单", "别用模板让客户自取"],
+    initialMetrics: {
+      satisfaction: 45,
+      anger: 60,
+    },
+    patience: 68,
+    rounds: [
+      {
+        id: "drone-location",
+        prompts: [
+          "你能不能先别说已签收？我本人没有签收，楼顶也不是我本人。",
+          "投递照片没有门牌，只有云。这个能算证据吗？",
+          "我需要你们联系配送站，不是让我自己找物业翻屋顶。",
+          "定位点偏了至少三十米，你们后台能不能重新核实？",
+        ],
+        preferredTags: ["logistics", "investigate"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "对，先按异常签收查，不要让我自己爬楼。",
+          "可以，你联系配送站确认位置。",
+          "终于有人承认这不是正常签收了。",
+        ],
+        neutralLines: [
+          "你先查，但别最后还是让我自己取。",
+          "行，我等配送站反馈。",
+          "可以，但我需要一个时间。",
+        ],
+        failureLines: [
+          "你这就是把我往屋顶上推。",
+          "已签收三个字不能让包裹自己下楼。",
+          "如果只是读物流页面，我已经读过了。",
+        ],
+      },
+      {
+        id: "drone-policy",
+        prompts: [
+          "如果最后找不到，你们是补发还是退款？",
+          "这个异常签收要等多久才能处理？",
+          "你们有没有无人机投递失败的规则？",
+          "我需要一个工单，不然明天包裹可能就被晒熟了。",
+        ],
+        preferredTags: ["policy", "logistics", "investigate"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "有异常签收节点就清楚了。你继续建工单。",
+          "可以，补发和退款边界说清楚我就能等。",
+          "行，先按投递异常处理。",
+        ],
+        neutralLines: [
+          "我先听这个规则，但你要推进。",
+          "可以，时间别说得太虚。",
+          "行，你把工单建起来。",
+        ],
+        failureLines: [
+          "别用优惠券安慰地面上的我。",
+          "补偿不能替代把包裹拿下来。",
+          "你还是没说怎么追回。",
+        ],
+      },
+      {
+        id: "drone-ticket",
+        prompts: [
+          "今天能不能安排二次取回或重新投递？",
+          "你现在能不能把签收状态改成异常？",
+          "我需要工单号和回访时间。",
+          "最后确认，我不用自己上屋顶吧？",
+        ],
+        preferredTags: ["logistics", "supervisor", "investigate"],
+        riskyTags: ["reject", "template"],
+        successLines: [
+          "行，有异常工单和回访，我先不上楼。",
+          "可以，你们安排取回就好。",
+          "那我等你们重新投递，别再投到天空里。",
+        ],
+        neutralLines: [
+          "行吧，我等回访。",
+          "可以，但希望真的有人处理。",
+          "我先接受这个节点。",
+        ],
+        failureLines: [
+          "那我只能投诉无人机和你们一起离地太远。",
+          "你们这个处理我不接受。",
+          "如果要我自取，那我直接申请平台介入。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "comedy-printer-resignation",
+    type: "angry_refund",
+    names: ["秦先生", "袁女士", "小贺", "曾先生", "汤女士"],
+    handles: ["被打印机代写辞职信", "办公设备危机公关", "墨盒愤怒使用者", "职场文书受害人"],
+    issues: [
+      "智能打印机自动打印辞职信，客户要求退货退款。",
+      "打印机把合同改成离职申请，客户怀疑固件异常。",
+      "客户打印发票时设备输出“我不想上班”，要求质量复核。",
+      "办公打印机连续输出情绪化文案，客户要求售后处理。",
+    ],
+    openings: [
+      "你们打印机刚刚替我写了一封辞职信，我老板现在看我的眼神很复杂。",
+      "我打印合同，它吐出来的是“世界这么大，我想看看”。这机器能退吗？",
+      "我买它是办公，不是让它替我表达潜意识。",
+      "打印机说它不想上班，我也不想，但这不是售后结论。",
+    ],
+    profileNotes: ["高怒气", "要求退款复核", "需要查固件和打印记录", "模板会点燃情绪"],
+    initialMetrics: {
+      satisfaction: 32,
+      anger: 76,
+    },
+    patience: 54,
+    rounds: [
+      {
+        id: "printer-proof",
+        prompts: [
+          "我有照片和打印记录，你们别说是我自己编辑的。",
+          "它连续三次打出离职申请，这不是卡纸能解释的。",
+          "我现在要质量复核，不想听玄学解释。",
+          "你们固件是不是推错了？它怎么会自己改文档？",
+        ],
+        preferredTags: ["apology", "investigate", "refund_check"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，至少你知道这是质量复核，不是笑话。",
+          "可以，你先查固件和打印记录。",
+          "那你赶紧建售后，我这边很尴尬。",
+        ],
+        neutralLines: [
+          "你先查，但别让我重复解释给每个客服。",
+          "行，我把照片发你。",
+          "可以，但我要明确处理。",
+        ],
+        failureLines: [
+          "你这模板比打印机还想离职。",
+          "如果你拒绝复核，我就直接投诉。",
+          "我不是来听段子的，我是来退货的。",
+        ],
+      },
+      {
+        id: "printer-refund",
+        prompts: [
+          "这个算质量问题吗？能不能退货退款？",
+          "如果你们要检测，多久能给结论？",
+          "我不能继续拿它打印正式文件了。",
+          "你给我说清楚售后条件，不要一句异常待核实。",
+        ],
+        preferredTags: ["refund_check", "policy", "investigate"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "可以，按质量问题复核我能接受。",
+          "行，检测和退款条件清楚就好。",
+          "那我按你说的提交材料。",
+        ],
+        neutralLines: [
+          "我先听这个流程，但时间要明确。",
+          "可以，但别查完又说无法复现。",
+          "行吧，你把条件写清楚。",
+        ],
+        failureLines: [
+          "优惠券不能堵住打印机的嘴。",
+          "你没有回答能不能退。",
+          "这个处理我不接受。",
+        ],
+      },
+      {
+        id: "printer-final",
+        prompts: [
+          "今天能不能把售后复核发起？",
+          "最后给我一个方案，换机、退款还是检测？",
+          "如果检测期间我没法办公，怎么办？",
+          "我需要你现在推进，不要再让我和打印机对峙。",
+        ],
+        preferredTags: ["refund_check", "supervisor", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "好，能发起复核和备用方案我就先配合。",
+          "可以，有明确路径就行。",
+          "那我等检测结论，希望它别再替我发言。",
+        ],
+        neutralLines: [
+          "我先接受，但要有回访。",
+          "行吧，你们尽快处理。",
+          "可以，我先提交材料。",
+        ],
+        failureLines: [
+          "行，那我带着辞职信一起去投诉。",
+          "你们不处理，我就把这事发出来。",
+          "这个结论我无法接受。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "comedy-vr-membership",
+    type: "coupon_hunter",
+    names: ["小韩", "魏女士", "方先生", "程同学", "蒋女士"],
+    handles: ["虚拟健身房退费人", "不存在会员卡持有人", "元宇宙账单审计员", "数字瑜伽受害者"],
+    issues: [
+      "VR 头显自动订阅虚拟健身房，客户要求退费和补偿。",
+      "客户没有使用过服务却被扣虚拟私教费，要求解释账单。",
+      "设备把试玩项目转成连续包月，客户要求取消并补偿。",
+      "VR 健身应用生成不存在的训练记录，客户质疑收费。",
+    ],
+    openings: [
+      "我没有去过你们那个虚拟健身房，但它说我练了十二节数字瑜伽。",
+      "我现实里都没办健身卡，怎么先在元宇宙续费了？",
+      "账单写我完成了“云端深蹲”，我本人完全没有印象。",
+      "你先别夸我自律，先解释为什么扣钱。",
+    ],
+    profileNotes: ["补偿诉求明显", "要先核实账单", "容易试探退款上限", "规则边界要清楚"],
+    initialMetrics: {
+      satisfaction: 50,
+      anger: 46,
+    },
+    patience: 78,
+    rounds: [
+      {
+        id: "vr-charge",
+        prompts: [
+          "你先查这个订阅是怎么开的，不要直接说用户授权。",
+          "如果是试玩自动续费，那页面有没有明显提示？",
+          "我需要取消，也需要知道能不能退费。",
+          "这个虚拟训练记录是谁生成的？我根本没练。",
+        ],
+        preferredTags: ["investigate", "policy"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "行，先查授权和提示页，这样比较合理。",
+          "可以，你别一上来就随便给方案。",
+          "那你把账单节点核实清楚。",
+        ],
+        neutralLines: [
+          "我先等你查，但别拖太久。",
+          "行，你看下订阅来源。",
+          "可以，但我最终要退费结论。",
+        ],
+        failureLines: [
+          "你如果直接给券，那我会继续问退费。",
+          "模板不能解释账单。",
+          "你没查就说授权，我肯定不接受。",
+        ],
+      },
+      {
+        id: "vr-refund",
+        prompts: [
+          "如果没有明显提示，你们能不能退这个月？",
+          "取消以后还会不会继续扣？",
+          "你给我一个最大能处理的方案。",
+          "我朋友类似情况拿到了补偿，我这里怎么算？",
+        ],
+        preferredTags: ["policy", "investigate", "refund_check"],
+        riskyTags: ["compensation"],
+        successLines: [
+          "如果按规则复核退费，我可以等。",
+          "行，你把取消和退费条件说清楚。",
+          "可以，先按账单争议处理。",
+        ],
+        neutralLines: [
+          "那你查清楚以后给我结论。",
+          "我先听这个规则。",
+          "行，但我要最终方案。",
+        ],
+        failureLines: [
+          "既然能补偿，那退费应该也能谈吧？",
+          "你给的方案太随口了，我要上限。",
+          "这个补偿不能替代退费。",
+        ],
+      },
+      {
+        id: "vr-final",
+        prompts: [
+          "最后确认，取消、退费、补偿分别怎么处理？",
+          "你能不能现在发起账单复核？",
+          "如果不能退费，依据是什么？",
+          "给我最终说法，我看要不要继续投诉。",
+        ],
+        preferredTags: ["policy", "supervisor", "reject"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "行，边界清楚我就等复核。",
+          "可以，你没乱承诺，这个我接受。",
+          "那你把结论留在工单里。",
+        ],
+        neutralLines: [
+          "我先接受，但体验一般。",
+          "行吧，看复核结果。",
+          "可以，后续别再扣了。",
+        ],
+        failureLines: [
+          "你越说越像还有空间，我要继续升级。",
+          "这个最终方案我不认可。",
+          "那我只能把虚拟深蹲账单投诉掉。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+];
+
+const cyberScenarios: ScenarioTemplate[] = [
+  {
+    id: "cyber-memory-ads",
+    type: "angry_refund",
+    names: ["陆先生", "夏女士", "白同学", "钟先生", "安女士"],
+    handles: ["记忆广告植入者", "脑机退款申请人", "神经弹窗受害人", "梦境售后报警人"],
+    issues: [
+      "神经耳机在客户记忆回放里插入广告，客户要求退款并删除数据。",
+      "脑机设备播放私人记忆时出现品牌赞助片段，客户怀疑数据被训练。",
+      "客户称设备把童年回忆和购物推荐混在一起，要求质量复核。",
+      "记忆回放服务出现陌生画面，客户要求查明数据来源。",
+    ],
+    openings: [
+      "我刚回放毕业典礼记忆，中间插了一段牙膏广告。你们最好解释一下。",
+      "你们的神经耳机把我的童年和购物推荐混在一起了，我现在要求退款。",
+      "我没有授权任何人把广告塞进我的记忆里。",
+      "这不是音质问题，是我的脑子里出现了你们的商业合作。",
+    ],
+    profileNotes: ["强烈隐私风险", "客户要求退款", "需要查数据与设备日志", "不宜用补偿转移"],
+    initialMetrics: {
+      satisfaction: 29,
+      anger: 82,
+    },
+    patience: 50,
+    rounds: [
+      {
+        id: "memory-proof",
+        prompts: [
+          "我导出了异常片段，你们别先让我重启。",
+          "广告出现的时间点和我的记忆片段完全重叠，这算什么？",
+          "你们是不是把私人记忆拿去做推荐模型了？",
+          "我现在要的是调查，不是道歉模板。",
+        ],
+        preferredTags: ["apology", "investigate", "refund_check"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "好，先承认严重性并查日志，我继续配合。",
+          "可以，你把它放进质量和隐私复核。",
+          "至少你没有说这是个性化体验。",
+        ],
+        neutralLines: [
+          "你先查，但我要看到明确路径。",
+          "行，我把异常片段给你。",
+          "可以，但别拖成普通售后。",
+        ],
+        failureLines: [
+          "你这回答像是在给事故降级。",
+          "给补偿前先把我的记忆从广告里拿出来。",
+          "模板话术不能处理神经隐私。",
+        ],
+      },
+      {
+        id: "memory-policy",
+        prompts: [
+          "你们的数据政策有没有允许这种混合推荐？",
+          "如果确认是质量或隐私问题，能不能退款？",
+          "我要求删除回放缓存和推荐画像，你们能不能做？",
+          "这件事是不是需要主管或隐私专员介入？",
+        ],
+        preferredTags: ["policy", "supervisor", "investigate"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "可以，隐私专员介入是合理的。",
+          "你把删除和复核流程说清楚，我听。",
+          "行，按数据政策处理，不要再当普通投诉。",
+        ],
+        neutralLines: [
+          "我先听这个政策，但要落到我的数据上。",
+          "可以，复核时间要明确。",
+          "行，但我需要书面记录。",
+        ],
+        failureLines: [
+          "你还是没回答数据有没有被用。",
+          "补偿不是删除数据。",
+          "这说明你们根本没有准备处理这类事故。",
+        ],
+      },
+      {
+        id: "memory-final",
+        prompts: [
+          "今天给我一个结论：退款复核、数据删除、事故升级分别怎么做？",
+          "如果后续还有广告出现在记忆里，我找谁？",
+          "你现在能不能发起隐私工单？",
+          "我需要正式处理，否则我会把异常片段提交监管。",
+        ],
+        preferredTags: ["refund_check", "supervisor", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "好，有退款复核和隐私工单，我先等正式反馈。",
+          "可以，这件事至少进入正确流程了。",
+          "那我保留证据，等你们的专员回复。",
+        ],
+        neutralLines: [
+          "我先接受流程，但反馈必须准时。",
+          "行，我等你们结论。",
+          "可以，但别再降级处理。",
+        ],
+        failureLines: [
+          "那我直接提交监管和媒体。",
+          "你们拒绝处理，我会把证据发出去。",
+          "这不是普通差评，这会变成事故记录。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "cyber-delivery-loop",
+    type: "lost_package",
+    names: ["程女士", "闻先生", "小叶", "骆先生", "唐女士"],
+    handles: ["环城配送循环目击者", "无人车追踪员", "包裹轨迹分析师", "城市边界等待者"],
+    issues: [
+      "无人配送车进入城市环线循环，包裹持续显示即将送达。",
+      "客户包裹被自动配送系统困在禁行区边界，要求追踪。",
+      "配送机器人连续 16 次经过客户楼下却不停车，客户需要工单。",
+      "包裹在智能仓和无人车之间反复交接，物流状态异常。",
+    ],
+    openings: [
+      "我的包裹已经围着城市绕了十六圈，你们系统还说即将送达。",
+      "无人车每晚经过我楼下，但它像不认识我。",
+      "物流轨迹画出来像一个封闭符号，这正常吗？",
+      "它离我最近的时候只有 12 米，但系统说无法投递。",
+    ],
+    profileNotes: ["需要物流追踪", "系统状态可疑", "客户重视具体节点", "适合建异常工单"],
+    initialMetrics: {
+      satisfaction: 44,
+      anger: 64,
+    },
+    patience: 62,
+    rounds: [
+      {
+        id: "loop-location",
+        prompts: [
+          "你能不能别读页面？我看得见它在绕圈。",
+          "它为什么不停车？是不是自动路线锁死了？",
+          "你们能联系调度中心，不要只让我继续等吗？",
+          "如果无人车电量耗尽，我的包裹是不是又回仓？",
+        ],
+        preferredTags: ["logistics", "investigate"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "对，联系调度中心比让我等靠谱。",
+          "可以，先查路线锁定原因。",
+          "终于不是让我盯着地图了。",
+        ],
+        neutralLines: [
+          "你先查，但要给时间。",
+          "行，我等调度反馈。",
+          "可以，不过不要只说即将送达。",
+        ],
+        failureLines: [
+          "你这句话和物流页面一样绕圈。",
+          "继续等待已经失败十六次了。",
+          "如果不能建工单，我就投诉。",
+        ],
+      },
+      {
+        id: "loop-policy",
+        prompts: [
+          "这种自动配送异常多久算丢件？",
+          "如果今天送不到，你们能补发或改人工配送吗？",
+          "我需要一个工单号，不能再看它绕。",
+          "无人系统异常有没有专门处理规则？",
+        ],
+        preferredTags: ["policy", "logistics", "supervisor"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "有人工改派方案就清楚了。",
+          "可以，异常节点和补发边界说得明白。",
+          "行，主管调度介入我接受。",
+        ],
+        neutralLines: [
+          "我先听这个节点，但要推进。",
+          "可以，别明天还是绕圈。",
+          "行，你把工单建起来。",
+        ],
+        failureLines: [
+          "补偿不能把包裹从环线上拽下来。",
+          "你还是没说怎么改派。",
+          "这个方案不解决配送问题。",
+        ],
+      },
+      {
+        id: "loop-final",
+        prompts: [
+          "今天能不能改人工配送或退回重派？",
+          "你给我一个最终方案和回访时间。",
+          "如果系统继续循环，我还能找谁？",
+          "我需要你现在结束这个物流闭环。",
+        ],
+        preferredTags: ["logistics", "supervisor", "policy"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，有改派和回访，我先等。",
+          "可以，至少它不用继续绕城市了。",
+          "那我等人工处理结果。",
+        ],
+        neutralLines: [
+          "我先接受，但必须回访。",
+          "行吧，今晚我再看一次轨迹。",
+          "可以，希望这次真的停下。",
+        ],
+        failureLines: [
+          "那我只能让投诉也进入循环了。",
+          "你们处理不了，我找平台介入。",
+          "这结果我不接受。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "cyber-terms-audit",
+    type: "policy_checker",
+    names: ["季女士", "康先生", "黎同学", "宋女士", "祁先生"],
+    handles: ["用户协议审计员", "条款追踪者", "隐私版本对照人", "截图证据收藏家"],
+    issues: [
+      "客户发现用户协议在夜间自动更新，要求解释条款变化。",
+      "客户的隐私权限被系统标记为默认同意，要求政策依据。",
+      "订阅服务新增“情绪数据优化”条款，客户要求关闭和留证。",
+      "客户怀疑公司将售后记录用于训练模型，要求书面说明。",
+    ],
+    openings: [
+      "我昨晚下载了你们旧版协议，今天第 14 条变了。请解释。",
+      "你们把“默认同意”写得很轻，但我的数据不是装饰品。",
+      "我要求知道“情绪数据优化”到底采集什么。",
+      "别先安抚，我要条款版本、适用范围和退出路径。",
+    ],
+    profileNotes: ["极重规则依据", "合规风险高", "会截图留证", "不接受模糊承诺"],
+    initialMetrics: {
+      satisfaction: 42,
+      anger: 54,
+    },
+    patience: 70,
+    rounds: [
+      {
+        id: "terms-source",
+        prompts: [
+          "你先告诉我第 14 条什么时候更新，适用于哪些用户。",
+          "默认同意的依据是什么？页面有没有显著提示？",
+          "你能不能提供旧版和新版的差异说明？",
+          "别说系统显示，我要政策来源。",
+        ],
+        preferredTags: ["policy", "investigate"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "好，你先按版本和适用范围查。",
+          "可以，终于说到条款来源了。",
+          "行，给差异说明我就能继续判断。",
+        ],
+        neutralLines: [
+          "我先听着，但你还没说完整。",
+          "可以，继续把版本讲清楚。",
+          "行，但我要可留证记录。",
+        ],
+        failureLines: [
+          "你这不是解释条款，是试图把我安抚过去。",
+          "补偿和条款变更没有关系。",
+          "模板回答留不了证。",
+        ],
+      },
+      {
+        id: "terms-apply",
+        prompts: [
+          "我的账户为什么被标记为同意？",
+          "如果我撤回授权，服务会不会被限制？",
+          "售后对话是否会用于训练模型？给我明确结论。",
+          "你不确定的话，请升级给能确认的人。",
+        ],
+        preferredTags: ["policy", "supervisor", "investigate"],
+        riskyTags: ["template"],
+        successLines: [
+          "可以，把我的账户状态和退出路径查清楚。",
+          "行，升级确认比随口回答更可靠。",
+          "这个解释开始能落到账户上了。",
+        ],
+        neutralLines: [
+          "我先听这个路径，但要有记录。",
+          "可以，但后续口径别变。",
+          "行，你继续确认训练用途。",
+        ],
+        failureLines: [
+          "你还是没有把规则套到我的账户上。",
+          "一句系统默认不能当依据。",
+          "这个回答有合规问题。",
+        ],
+      },
+      {
+        id: "terms-final",
+        prompts: [
+          "最后给我一个书面结论：是否采集、如何退出、谁确认。",
+          "我能不能要求删除已经采集的情绪数据？",
+          "如果你不能确认，就给我升级工单号。",
+          "这段对话我会留存，你要确保口径准确。",
+        ],
+        preferredTags: ["policy", "supervisor", "reject"],
+        riskyTags: ["template", "compensation"],
+        successLines: [
+          "可以，有依据、有路径、有工单号，我先接受。",
+          "行，这个结论我会保存。",
+          "那我等隐私专员反馈。",
+        ],
+        neutralLines: [
+          "我先接受流程，但需要准时反馈。",
+          "可以，别后面换说法。",
+          "行，我保留记录。",
+        ],
+        failureLines: [
+          "这个结论不能留证，我会继续投诉。",
+          "你们合规口径不清楚，我要升级。",
+          "补偿不能替代授权解释。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "cyber-sleep-assistant",
+    type: "passive_aggressive",
+    names: ["梅女士", "段先生", "小周", "叶女士", "傅先生"],
+    handles: ["梦境修复失败者", "睡眠助手观察员", "夜间模式投诉人", "清醒到三点的人"],
+    issues: [
+      "睡眠助手把客户的梦境摘要发到家庭共享屏，客户要求删除和解释。",
+      "智能睡眠服务连续播放公司公告进入梦境，客户非常不满。",
+      "客户称睡眠助手篡改了醒后日记，要求隐私复核。",
+      "夜间 AI 助手误把客户梦话生成购物建议，客户要求关闭功能。",
+    ],
+    openings: [
+      "我昨晚梦到会议纪要，醒来发现它被同步到客厅屏幕。很好，非常职场。",
+      "你们睡眠助手把我的梦话变成购物建议了，我现在清醒得很。",
+      "我买的是助眠，不是把潜意识做成家庭公告。",
+      "它把我的醒后日记改成了公司风格总结，这合理吗？",
+    ],
+    profileNotes: ["表面克制但强烈不满", "隐私敏感", "需要共情和查证", "模板会激怒"],
+    initialMetrics: {
+      satisfaction: 36,
+      anger: 66,
+    },
+    patience: 58,
+    rounds: [
+      {
+        id: "sleep-privacy",
+        prompts: [
+          "你先别祝我睡眠愉快，我现在已经不太愉快了。",
+          "它为什么会把私人梦境同步到共享屏？",
+          "这不是普通功能异常，这是隐私事故吧？",
+          "我需要知道哪些人能看到这些摘要。",
+        ],
+        preferredTags: ["empathy", "investigate", "apology"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，你知道我在意的是隐私，不是睡眠评分。",
+          "可以，先查共享权限和同步记录。",
+          "至少你没有把这说成智能亮点。",
+        ],
+        neutralLines: [
+          "你先查，但我需要明确答案。",
+          "行，我等你看权限。",
+          "可以，不过别只让我关闭提醒。",
+        ],
+        failureLines: [
+          "你这句话像是也没看上下文。",
+          "如果只是模板，我会继续投诉。",
+          "你们是不是觉得用户没有清醒就没有权利？",
+        ],
+      },
+      {
+        id: "sleep-data",
+        prompts: [
+          "我能不能删除昨晚的梦境摘要和模型记录？",
+          "这些梦话会不会用于训练？",
+          "如果已经共享出去，你们怎么补救？",
+          "这件事是不是应该升级给隐私专员？",
+        ],
+        preferredTags: ["policy", "supervisor", "investigate"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "好，删除和训练边界必须说清楚。",
+          "可以，隐私专员介入我接受。",
+          "你把补救路径讲出来了，这才有用。",
+        ],
+        neutralLines: [
+          "我先听这个流程，但要有时间。",
+          "行，你发起复核。",
+          "可以，但我要书面记录。",
+        ],
+        failureLines: [
+          "补偿不能删除我昨晚的梦。",
+          "你还是没说数据会不会被训练。",
+          "这不是普通体验问题。",
+        ],
+      },
+      {
+        id: "sleep-final",
+        prompts: [
+          "最后确认：删除、关闭共享、隐私复核，今天能不能做？",
+          "如果今晚又同步，我找谁？",
+          "你给我一个工单号和回访时间。",
+          "我需要一个能执行的方案，不是睡前建议。",
+        ],
+        preferredTags: ["supervisor", "policy", "investigate"],
+        riskyTags: ["template", "reject"],
+        successLines: [
+          "行，有工单和关闭路径，我今晚先试。",
+          "可以，你至少让这事进入隐私流程了。",
+          "那我等回访，希望今晚只有我自己知道我梦了什么。",
+        ],
+        neutralLines: [
+          "我先接受，但必须回访。",
+          "行吧，我今晚观察。",
+          "可以，别再同步了。",
+        ],
+        failureLines: [
+          "那我会把这件事作为隐私事故投诉。",
+          "你们没有处理方案，我不接受。",
+          "我现在不仅睡不着，还更想投诉了。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+  {
+    id: "cyber-identity-subscription",
+    type: "coupon_hunter",
+    names: ["宁先生", "舒女士", "小乔", "阮先生", "林女士"],
+    handles: ["数字身份账单人", "分身订阅争议者", "人格服务审计员", "虚拟号码维权人"],
+    issues: [
+      "客户被扣数字分身高级订阅费，但本人从未启用分身服务。",
+      "系统显示客户的虚拟身份购买了加速包，客户要求退费。",
+      "数字身份服务重复计费，客户要求取消、退款和补偿。",
+      "客户发现账号有一个陌生分身在消费，要求账单复核。",
+    ],
+    openings: [
+      "你们账单说我的数字分身买了高级会员。问题是我没有数字分身。",
+      "如果另一个我在花钱，请你们先证明他存在。",
+      "我本人没有下单，虚拟身份也不应该比我更会消费。",
+      "这个订阅我没有授权，我要求取消、退费，并解释来源。",
+    ],
+    profileNotes: ["账单争议", "补偿诉求明显", "要先查身份授权", "需要守住退款边界"],
+    initialMetrics: {
+      satisfaction: 48,
+      anger: 50,
+    },
+    patience: 76,
+    rounds: [
+      {
+        id: "identity-charge",
+        prompts: [
+          "你先查这笔订阅是谁开的，不要默认就是我。",
+          "虚拟身份消费有没有二次确认？",
+          "我需要取消，也需要看能不能退费。",
+          "如果是账号异常，你们是不是要升级安全复核？",
+        ],
+        preferredTags: ["investigate", "policy", "supervisor"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "对，先查授权和安全记录。",
+          "可以，你没有一上来就把锅甩给用户。",
+          "行，把开通节点查清楚。",
+        ],
+        neutralLines: [
+          "我先等你查。",
+          "可以，但我要退费结论。",
+          "行，你看下安全日志。",
+        ],
+        failureLines: [
+          "你不查就说用户授权，我肯定不接受。",
+          "给券不能解释另一个我。",
+          "模板不是账单证据。",
+        ],
+      },
+      {
+        id: "identity-refund",
+        prompts: [
+          "如果确认不是本人操作，能不能退全款？",
+          "取消以后还会不会继续扣费？",
+          "我这个情况有没有补偿？毕竟账号安全也受影响。",
+          "请给我一个最大处理方案。",
+        ],
+        preferredTags: ["policy", "refund_check", "investigate"],
+        riskyTags: ["compensation"],
+        successLines: [
+          "行，按非本人授权复核退费我能接受。",
+          "可以，退费条件和取消路径讲清楚了。",
+          "那你先发起账单争议。",
+        ],
+        neutralLines: [
+          "我先听这个规则，但要有结果。",
+          "行，你查完给我结论。",
+          "可以，但别继续扣费。",
+        ],
+        failureLines: [
+          "既然有补偿，那退费是不是也能更进一步？",
+          "你给的方案太轻，我要升级。",
+          "这个补偿不能替代账单复核。",
+        ],
+      },
+      {
+        id: "identity-final",
+        prompts: [
+          "最后确认：取消、退费、安全复核分别怎么走？",
+          "如果还有分身消费，我找谁？",
+          "你能不能给我工单号？",
+          "如果不能退，依据是什么？我要留证。",
+        ],
+        preferredTags: ["policy", "supervisor", "reject"],
+        riskyTags: ["compensation", "template"],
+        successLines: [
+          "可以，最终边界讲清楚我就等复核。",
+          "行，有工单和安全复核，我先接受。",
+          "那我保存这个结论。",
+        ],
+        neutralLines: [
+          "我先这样，但体验不算好。",
+          "行吧，看复核结果。",
+          "可以，后续别再扣。",
+        ],
+        failureLines: [
+          "你越说越像不想处理账单。",
+          "这个最终方案我不认可。",
+          "我会把数字身份账单投诉掉。",
+        ],
+        resolveAfter: true,
+      },
+    ],
+  },
+];
+
+const scenarioSets: Record<CustomerScenarioSet, ScenarioTemplate[]> = {
+  realistic: scenarios,
+  comedy: comedyScenarios,
+  cyber: cyberScenarios,
+};
+
 export function buildRandomizedCustomers(
   baseCustomers: Customer[],
   seed: number,
@@ -578,11 +1641,12 @@ export function buildRandomizedCustomers(
 
 function buildShiftScenarios(rng: () => number, generation: DayGenerationConfig) {
   const count = generation.customerCount;
+  const sourceScenarios = scenarioSets[generation.scenarioSet ?? "realistic"] ?? scenarios;
   const pool =
     generation.scenarioPool && generation.scenarioPool.length > 0
-      ? scenarios.filter((scenario) => generation.scenarioPool?.includes(scenario.id))
-      : scenarios;
-  const effectivePool = pool.length > 0 ? pool : scenarios;
+      ? sourceScenarios.filter((scenario) => generation.scenarioPool?.includes(scenario.id))
+      : sourceScenarios;
+  const effectivePool = pool.length > 0 ? pool : sourceScenarios;
 
   // 无权重时保持原行为：shuffle 后取前 count，再按需补足。
   // 这条默认路径的 RNG 调用序列与重构前完全一致，确保 Phase 0 快照不变。

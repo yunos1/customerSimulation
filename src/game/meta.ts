@@ -1,4 +1,11 @@
-import { career, getCareerDay, getNextDayId, isPassingGrade } from "../content/career";
+import {
+  getCareerDay,
+  getNextDayId,
+  isPassingGrade,
+  supportModeOrder,
+  supportModes,
+  type SupportModeId,
+} from "../content/career";
 import { unlockableCards } from "../content/unlockableCards";
 import type { AchievementId, Grade, UnlockCondition } from "./types";
 
@@ -20,24 +27,36 @@ export interface MetaRecords {
   bestSatisfaction: number;
 }
 
-export interface MetaState {
+export interface ModeProgress {
   /** 玩家当前选中 / 最近进入的天。 */
   currentDayId: string;
   /** 已解锁的天 id。 */
   unlockedDayIds: string[];
   /** 每天的历史最佳评级。 */
   bestGrades: Record<string, Grade>;
-  /** 生涯累计解锁的成就（跨天并集）。 */
+}
+
+export interface MetaState {
+  /** 当前选择的客服风格模式。 */
+  activeModeId: SupportModeId;
+  /** 每个模式独立的职业线进度。 */
+  modes: Record<SupportModeId, ModeProgress>;
+  /** 生涯累计解锁的成就（跨模式并集）。 */
   lifetimeAchievements: AchievementId[];
-  /** 生涯记录。 */
+  /** 生涯记录（跨模式累计）。 */
   records: MetaRecords;
-  /** 已解锁的回复卡 id（Phase 3 用，此处先建空数组）。 */
+  /** 已解锁的回复卡 id。 */
   unlockedCardIds: string[];
 }
+
+// 兼容旧调用方和旧测试使用的扁平字段。
+export type LegacyMetaFields = ModeProgress;
+export type MetaStateWithLegacy = MetaState & LegacyMetaFields;
 
 // 一天结束时由 App 从 GameState 提取的事实，喂给 recordDayResult。
 // 只携带纯数据，不含任何 React / DOM / 引擎引用，便于单测。
 export interface DayResult {
+  modeId?: SupportModeId;
   dayId: string;
   grade: Grade;
   /** 本次值班解锁的成就（GameState.achievements）。 */
@@ -51,20 +70,18 @@ export interface DayResult {
 }
 
 const STORAGE_KEY = "customer-sim:meta";
-const META_VERSION = 1;
+const META_VERSION = 2;
+const legacyModeId: SupportModeId = "workplace";
 
 interface PersistedMeta {
   version: number;
   data: MetaState;
 }
 
-export function defaultMeta(): MetaState {
-  const firstDay = career.days[0];
-
-  return {
-    currentDayId: firstDay.id,
-    unlockedDayIds: [firstDay.id],
-    bestGrades: {},
+export function defaultMeta(activeModeId: SupportModeId = legacyModeId): MetaStateWithLegacy {
+  return withLegacyFields({
+    activeModeId,
+    modes: buildDefaultModeProgressMap(),
     lifetimeAchievements: [],
     records: {
       totalRuns: 0,
@@ -73,7 +90,43 @@ export function defaultMeta(): MetaState {
       bestSatisfaction: 0,
     },
     unlockedCardIds: [],
-  };
+  });
+}
+
+export function getModeProgress(meta: MetaState, modeId: SupportModeId): ModeProgress {
+  return meta.modes[modeId] ?? defaultModeProgress(modeId);
+}
+
+export function selectMode(meta: MetaState, modeId: SupportModeId): MetaStateWithLegacy {
+  if (meta.activeModeId === modeId && meta.modes[modeId]) {
+    return withLegacyFields(meta);
+  }
+
+  return withLegacyFields({
+    ...meta,
+    activeModeId: modeId,
+    modes: ensureModeProgressMap(meta.modes),
+  });
+}
+
+export function selectDay(meta: MetaState, modeId: SupportModeId, dayId: string): MetaStateWithLegacy {
+  const modeProgress = getModeProgress(meta, modeId);
+
+  if (modeProgress.currentDayId === dayId) {
+    return withLegacyFields(meta);
+  }
+
+  return withLegacyFields({
+    ...meta,
+    activeModeId: modeId,
+    modes: {
+      ...ensureModeProgressMap(meta.modes),
+      [modeId]: {
+        ...modeProgress,
+        currentDayId: dayId,
+      },
+    },
+  });
 }
 
 // 纯 merge：把一天的结果并入 meta，返回新对象（不可变）。
@@ -83,26 +136,30 @@ export function defaultMeta(): MetaState {
 //   重复调用同一结果不会改变它们。
 // - records 的累计计数（totalRuns / totalResolved / totalComplaints）**不是**幂等的，
 //   重复调用会重复累加。防重复计数由调用方（useMetaProgress 经 App 的 ref 守卫）保证：
-//   每个 summary 只调用一次。详见 plan 的 Phase 2 风险说明。
-export function recordDayResult(meta: MetaState, result: DayResult): MetaState {
-  const day = getCareerDay(result.dayId);
+//   每个 summary 只调用一次。
+export function recordDayResult(meta: MetaState, result: DayResult): MetaStateWithLegacy {
+  const modeId = result.modeId ?? meta.activeModeId ?? legacyModeId;
+  const config = supportModes[modeId] ?? supportModes[legacyModeId];
+  const day = getCareerDay(result.dayId, config);
 
   if (!day) {
     // 未知天 id：不动 meta，避免脏数据污染持久化。
-    return meta;
+    return withLegacyFields(meta);
   }
 
+  const currentModeProgress = getModeProgress(meta, modeId);
+
   // 最佳评级取 max：若旧评级已经达到（>=）本次评级，保留旧的。
-  const previousGrade = meta.bestGrades[result.dayId];
+  const previousGrade = currentModeProgress.bestGrades[result.dayId];
   const bestGrade =
     previousGrade && isPassingGrade(previousGrade, result.grade) ? previousGrade : result.grade;
-  const bestGrades = { ...meta.bestGrades, [result.dayId]: bestGrade };
+  const bestGrades = { ...currentModeProgress.bestGrades, [result.dayId]: bestGrade };
 
   // 过关则解锁下一天。
-  let unlockedDayIds = meta.unlockedDayIds;
+  let unlockedDayIds = currentModeProgress.unlockedDayIds;
 
   if (isPassingGrade(result.grade, day.passGrade)) {
-    const nextDayId = getNextDayId(result.dayId);
+    const nextDayId = getNextDayId(result.dayId, config);
 
     if (nextDayId && !unlockedDayIds.includes(nextDayId)) {
       unlockedDayIds = [...unlockedDayIds, nextDayId];
@@ -125,16 +182,23 @@ export function recordDayResult(meta: MetaState, result: DayResult): MetaState {
   // 解锁单调：已解锁的卡不会因为后续数据回落而消失（用集合并保证）。
   const nextMeta: MetaState = {
     ...meta,
-    bestGrades,
-    unlockedDayIds,
+    activeModeId: modeId,
+    modes: {
+      ...ensureModeProgressMap(meta.modes),
+      [modeId]: {
+        currentDayId: currentModeProgress.currentDayId,
+        unlockedDayIds,
+        bestGrades,
+      },
+    },
     lifetimeAchievements,
     records,
   };
 
-  return {
+  return withLegacyFields({
     ...nextMeta,
     unlockedCardIds: evaluateUnlocks(nextMeta),
-  };
+  });
 }
 
 // 从 records + 成就推导当前应解锁的高级回复卡 id 列表。
@@ -168,7 +232,7 @@ function meetsCondition(meta: MetaState, condition: UnlockCondition): boolean {
 
 // ── localStorage 边界（唯一的 I/O，全部 try/catch 包裹） ──
 
-export function loadMeta(): MetaState {
+export function loadMeta(): MetaStateWithLegacy {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
 
@@ -185,7 +249,7 @@ export function loadMeta(): MetaState {
 
 export function saveMeta(meta: MetaState): void {
   try {
-    const envelope: PersistedMeta = { version: META_VERSION, data: meta };
+    const envelope: PersistedMeta = { version: META_VERSION, data: stripLegacyFields(meta) };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
   } catch {
     // localStorage 不可用（隐私模式 / 配额满）：静默降级，游戏仍可玩，只是不持久化。
@@ -193,14 +257,16 @@ export function saveMeta(meta: MetaState): void {
 }
 
 // 把解析出的任意 JSON 迁移成当前版本的 MetaState。
-// 损坏 / 旧版本 → defaultMeta；当前 v1 数据 → 逐字段校验回填（防部分字段损坏）。
-export function migrate(parsed: unknown): MetaState {
+// 损坏 → defaultMeta；v1 数据 → 迁移进 workplace；v2 数据 → 逐字段校验回填。
+export function migrate(parsed: unknown): MetaStateWithLegacy {
   if (!isRecord(parsed)) {
     return defaultMeta();
   }
 
-  // 未知或旧版本：当前仅 v1，无升级路径，安全起见整体重置。
-  // 未来加版本时在此按 version switch 逐步升级。
+  if (parsed.version === 1 && isRecord(parsed.data)) {
+    return migrateV1Meta(parsed.data);
+  }
+
   if (parsed.version !== META_VERSION || !isRecord(parsed.data)) {
     return defaultMeta();
   }
@@ -208,22 +274,96 @@ export function migrate(parsed: unknown): MetaState {
   return coerceMetaState(parsed.data);
 }
 
-// 逐字段校验：任一字段类型不对就用默认值兜底，最大化保留有效数据。
-function coerceMetaState(data: Record<string, unknown>): MetaState {
+function migrateV1Meta(data: Record<string, unknown>): MetaStateWithLegacy {
   const base = defaultMeta();
+  const workplace = coerceModeProgress(data, legacyModeId);
 
-  return {
-    currentDayId: isNonEmptyString(data.currentDayId) ? data.currentDayId : base.currentDayId,
-    unlockedDayIds:
-      isStringArray(data.unlockedDayIds) && data.unlockedDayIds.length > 0
-        ? data.unlockedDayIds
-        : base.unlockedDayIds,
-    bestGrades: isGradeRecord(data.bestGrades) ? data.bestGrades : base.bestGrades,
+  return withLegacyFields({
+    activeModeId: legacyModeId,
+    modes: {
+      ...base.modes,
+      [legacyModeId]: workplace,
+    },
     lifetimeAchievements: isStringArray(data.lifetimeAchievements)
       ? (data.lifetimeAchievements as AchievementId[])
       : base.lifetimeAchievements,
     records: coerceRecords(data.records, base.records),
     unlockedCardIds: isStringArray(data.unlockedCardIds) ? data.unlockedCardIds : base.unlockedCardIds,
+  });
+}
+
+// 逐字段校验：任一字段类型不对就用默认值兜底，最大化保留有效数据。
+function coerceMetaState(data: Record<string, unknown>): MetaStateWithLegacy {
+  const base = defaultMeta();
+  const activeModeId = isSupportModeId(data.activeModeId) ? data.activeModeId : base.activeModeId;
+
+  return withLegacyFields({
+    activeModeId,
+    modes: isRecord(data.modes) ? coerceModeProgressMap(data.modes) : base.modes,
+    lifetimeAchievements: isStringArray(data.lifetimeAchievements)
+      ? (data.lifetimeAchievements as AchievementId[])
+      : base.lifetimeAchievements,
+    records: coerceRecords(data.records, base.records),
+    unlockedCardIds: isStringArray(data.unlockedCardIds) ? data.unlockedCardIds : base.unlockedCardIds,
+  });
+}
+
+function coerceModeProgressMap(value: Record<string, unknown>) {
+  return supportModeOrder.reduce<Record<SupportModeId, ModeProgress>>(
+    (modes, modeId) => ({
+      ...modes,
+      [modeId]: coerceModeProgress(value[modeId], modeId),
+    }),
+    {} as Record<SupportModeId, ModeProgress>,
+  );
+}
+
+function ensureModeProgressMap(modes: Partial<Record<SupportModeId, ModeProgress>> | undefined) {
+  return supportModeOrder.reduce<Record<SupportModeId, ModeProgress>>(
+    (nextModes, modeId) => ({
+      ...nextModes,
+      [modeId]: modes?.[modeId] ?? defaultModeProgress(modeId),
+    }),
+    {} as Record<SupportModeId, ModeProgress>,
+  );
+}
+
+function buildDefaultModeProgressMap() {
+  return supportModeOrder.reduce<Record<SupportModeId, ModeProgress>>(
+    (modes, modeId) => ({
+      ...modes,
+      [modeId]: defaultModeProgress(modeId),
+    }),
+    {} as Record<SupportModeId, ModeProgress>,
+  );
+}
+
+function defaultModeProgress(modeId: SupportModeId): ModeProgress {
+  const firstDay = supportModes[modeId].days[0];
+
+  return {
+    currentDayId: firstDay.id,
+    unlockedDayIds: [firstDay.id],
+    bestGrades: {},
+  };
+}
+
+function coerceModeProgress(value: unknown, modeId: SupportModeId): ModeProgress {
+  const base = defaultModeProgress(modeId);
+
+  if (!isRecord(value)) {
+    return base;
+  }
+
+  return {
+    currentDayId: isKnownDayId(modeId, value.currentDayId)
+      ? value.currentDayId
+      : base.currentDayId,
+    unlockedDayIds:
+      isStringArray(value.unlockedDayIds) && value.unlockedDayIds.some((dayId) => isKnownDayId(modeId, dayId))
+        ? value.unlockedDayIds.filter((dayId) => isKnownDayId(modeId, dayId))
+        : base.unlockedDayIds,
+    bestGrades: isGradeRecord(value.bestGrades) ? filterKnownBestGrades(value.bestGrades, modeId) : base.bestGrades,
   };
 }
 
@@ -244,14 +384,49 @@ function coerceRecords(value: unknown, base: MetaRecords): MetaRecords {
   };
 }
 
+function withLegacyFields(meta: MetaState): MetaStateWithLegacy {
+  const progress = getModeProgress(meta, meta.activeModeId);
+
+  return {
+    ...meta,
+    currentDayId: progress.currentDayId,
+    unlockedDayIds: progress.unlockedDayIds,
+    bestGrades: progress.bestGrades,
+  };
+}
+
+function stripLegacyFields(meta: MetaState): MetaState {
+  return {
+    activeModeId: meta.activeModeId,
+    modes: ensureModeProgressMap(meta.modes),
+    lifetimeAchievements: meta.lifetimeAchievements,
+    records: meta.records,
+    unlockedCardIds: meta.unlockedCardIds,
+  };
+}
+
+function filterKnownBestGrades(bestGrades: Record<string, Grade>, modeId: SupportModeId) {
+  return Object.entries(bestGrades).reduce<Record<string, Grade>>((filtered, [dayId, grade]) => {
+    if (isKnownDayId(modeId, dayId)) {
+      filtered[dayId] = grade;
+    }
+
+    return filtered;
+  }, {});
+}
+
+function isKnownDayId(modeId: SupportModeId, dayId: unknown): dayId is string {
+  return typeof dayId === "string" && supportModes[modeId].days.some((day) => day.id === dayId);
+}
+
+function isSupportModeId(value: unknown): value is SupportModeId {
+  return typeof value === "string" && value in supportModes;
+}
+
 const VALID_GRADES: readonly Grade[] = ["S", "A", "B", "C", "D"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
 }
 
 function isFiniteNumber(value: unknown): value is number {

@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { buildLevelConfig, career, getCareerDay, getNextDayId, isPassingGrade } from "./content/career";
+import {
+  buildLevelConfig,
+  getCareerDay,
+  getNextDayId,
+  getSupportMode,
+  isPassingGrade,
+  supportModeOrder,
+  supportModes,
+  type SupportModeId,
+} from "./content/career";
 import { requestAiCustomerReply } from "./game/aiCustomerReply";
 import { createInitialState, gameReducer, getActiveSession } from "./game/reducer";
+import { getModeProgress, type ModeProgress } from "./game/meta";
 import { setSimulatorFavicon } from "./hooks/useFavicon";
 import { useMetaProgress } from "./hooks/useMetaProgress";
 import type { UnlockableCard } from "./game/types";
@@ -19,23 +29,28 @@ import { MetricsBar } from "./components/MetricsBar";
 import { ReplyDeck } from "./components/ReplyDeck";
 import { ShiftRosterSimulator } from "./components/ShiftRosterSimulator";
 import { SimulatorHub } from "./components/SimulatorHub";
+import { SupportModeSelect } from "./components/SupportModeSelect";
 import { TimeoutAlerts } from "./components/TimeoutAlerts";
 import { UnlockToast } from "./components/UnlockToast";
 import { unlockableCards } from "./content/unlockableCards";
 
-const firstDay = career.days[0];
+const defaultSupportModeId: SupportModeId = "workplace";
+const defaultSupportMode = supportModes[defaultSupportModeId];
+const firstDay = defaultSupportMode.days[0];
 
 export default function App() {
   // 职业进度持久化在 meta 层（独立于 per-run GameState，跨浏览器会话保存）。
-  const { meta, selectDay, recordDayResult, resetCareer } = useMetaProgress();
-  const { currentDayId, unlockedDayIds, bestGrades } = meta;
+  const { meta, selectMode, selectDay, recordDayResult, resetCareer } = useMetaProgress();
+  const currentSupportMode = getSupportMode(meta.activeModeId);
+  const currentModeProgress = getModeProgress(meta, currentSupportMode.id);
+  const { currentDayId, unlockedDayIds, bestGrades } = currentModeProgress;
   const [activeSimulator, setActiveSimulator] = useState<
     "hub" | "support" | "interview" | "shiftRoster" | "clinicTriage"
   >("hub");
-  // career_map 是职业地图视图；进入某天后才创建 per-day 引擎 state。
-  const [view, setView] = useState<"career_map" | "shift">("career_map");
+  // mode_select / career_map 是客服模块的选择视图；进入某天后才创建 per-day 引擎 state。
+  const [view, setView] = useState<"mode_select" | "career_map" | "shift">("mode_select");
 
-  const currentDay = getCareerDay(currentDayId) ?? firstDay;
+  const currentDay = getCareerDay(currentDayId, currentSupportMode) ?? currentSupportMode.days[0] ?? firstDay;
   const initialState = useMemo(
     () => createInitialState(buildLevelConfig(firstDay), Date.now()),
     [],
@@ -53,6 +68,27 @@ export default function App() {
   const activeSession = getActiveSession(state);
   const activeCustomer = activeSession?.customer;
   const activeLevel = state.level;
+  const supportModeProgressByMode = useMemo(
+    () =>
+      supportModeOrder.reduce<Record<SupportModeId, ModeProgress>>(
+        (progressByMode, modeId) => ({
+          ...progressByMode,
+          [modeId]: getModeProgress(meta, modeId),
+        }),
+        {} as Record<SupportModeId, ModeProgress>,
+      ),
+    [meta],
+  );
+  const supportModeList = useMemo(() => supportModeOrder.map((modeId) => supportModes[modeId]), []);
+  const totalSupportDays = supportModeList.reduce((sum, mode) => sum + mode.days.length, 0);
+  const unlockedSupportDays = supportModeList.reduce(
+    (sum, mode) => sum + supportModeProgressByMode[mode.id].unlockedDayIds.length,
+    0,
+  );
+  const gradedSupportDays = supportModeList.reduce(
+    (sum, mode) => sum + Object.keys(supportModeProgressByMode[mode.id].bestGrades).length,
+    0,
+  );
   const visibleMetrics = activeSession
     ? {
         satisfaction: activeSession.metrics.satisfaction,
@@ -107,7 +143,7 @@ export default function App() {
       return;
     }
 
-    const summaryKey = `${currentDayId}:${state.summary.grade}:${state.outcomes.length}`;
+    const summaryKey = `${currentSupportMode.id}:${currentDayId}:${state.summary.grade}:${state.outcomes.length}`;
 
     if (recordedSummaryRef.current === summaryKey) {
       return;
@@ -118,6 +154,7 @@ export default function App() {
     const resolvedCount = state.outcomes.filter((outcome) => outcome.status === "resolved").length;
 
     recordDayResult({
+      modeId: currentSupportMode.id,
       dayId: currentDayId,
       grade: state.summary.grade,
       achievements: state.achievements,
@@ -125,7 +162,15 @@ export default function App() {
       complaintCount: state.outcomes.length - resolvedCount,
       finalSatisfaction: state.summary.totals.satisfaction,
     });
-  }, [state.phase, state.summary, state.outcomes, state.achievements, currentDayId, recordDayResult]);
+  }, [
+    state.phase,
+    state.summary,
+    state.outcomes,
+    state.achievements,
+    currentSupportMode.id,
+    currentDayId,
+    recordDayResult,
+  ]);
 
   // 检测新解锁的高级卡：对比 meta.unlockedCardIds 与上次已知集合，差集即「新」解锁。
   // 用 ref 持有已知集合，StrictMode 双调用安全（ref 跨调用持久，不会重复弹同一张）。
@@ -149,25 +194,44 @@ export default function App() {
   const launchShiftRosterSimulator = useCallback(() => setActiveSimulator("shiftRoster"), []);
   const launchClinicTriageSimulator = useCallback(() => setActiveSimulator("clinicTriage"), []);
   const backToHub = useCallback(() => setActiveSimulator("hub"), []);
+  const handleSwitchSupportMode = useCallback(() => {
+    recordedSummaryRef.current = undefined;
+    setPendingReplySessionId(undefined);
+    setScrollTargetSessionId(undefined);
+    setView("mode_select");
+    dispatch({
+      type: "LOAD_DAY",
+      level: buildLevelConfig(currentSupportMode.days[0] ?? firstDay, currentSupportMode, meta.unlockedCardIds),
+      seed: Date.now(),
+    });
+  }, [currentSupportMode, meta.unlockedCardIds]);
+  const handleSelectSupportMode = useCallback(
+    (modeId: SupportModeId) => {
+      selectMode(modeId);
+      setView("career_map");
+      recordedSummaryRef.current = undefined;
+    },
+    [selectMode],
+  );
 
   const enterDay = useCallback(
     (dayId: string) => {
-      const day = getCareerDay(dayId);
+      const day = getCareerDay(dayId, currentSupportMode);
 
       if (!day) {
         return;
       }
 
       recordedSummaryRef.current = undefined;
-      selectDay(dayId);
+      selectDay(currentSupportMode.id, dayId);
       setView("shift");
       dispatch({
         type: "LOAD_DAY",
-        level: buildLevelConfig(day, career, meta.unlockedCardIds),
+        level: buildLevelConfig(day, currentSupportMode, meta.unlockedCardIds),
         seed: Date.now(),
       });
     },
-    [selectDay, meta.unlockedCardIds],
+    [currentSupportMode, selectDay, meta.unlockedCardIds],
   );
 
   const openTimeoutSession = useCallback((sessionId: string) => {
@@ -222,51 +286,52 @@ export default function App() {
     recordedSummaryRef.current = undefined;
     dispatch({
       type: "RESTART_DAY",
-      level: buildLevelConfig(currentDay, career, meta.unlockedCardIds),
+      level: buildLevelConfig(currentDay, currentSupportMode, meta.unlockedCardIds),
       seed: Date.now(),
     });
-  }, [currentDay, meta.unlockedCardIds]);
+  }, [currentDay, currentSupportMode, meta.unlockedCardIds]);
   const handleAdvance = useCallback(() => {
-    const nextDayId = getNextDayId(currentDayId);
+    const nextDayId = getNextDayId(currentDayId, currentSupportMode);
 
     if (nextDayId) {
       enterDay(nextDayId);
     } else {
       setView("career_map");
     }
-  }, [currentDayId, enterDay]);
+  }, [currentDayId, currentSupportMode, enterDay]);
   const handleBackToMap = useCallback(() => setView("career_map"), []);
   const handleResetCareer = useCallback(() => {
-    if (window.confirm("确定要重置整条生涯进度吗？解锁与最佳评级都会清空。")) {
+    if (window.confirm("确定要重置全部客服模式进度吗？解锁与最佳评级都会清空。")) {
       knownUnlockedRef.current = new Set();
       setNewlyUnlockedCards([]);
       resetCareer();
+      setView("mode_select");
     }
   }, [resetCareer]);
 
   const careerMapDays = useMemo<CareerMapDay[]>(
     () =>
-      career.days.map((day) => ({
+      currentSupportMode.days.map((day) => ({
         day,
         unlocked: unlockedDayIds.includes(day.id),
         bestGrade: bestGrades[day.id],
         isCurrent: day.id === currentDayId,
       })),
-    [unlockedDayIds, bestGrades, currentDayId],
+    [currentSupportMode.days, unlockedDayIds, bestGrades, currentDayId],
   );
 
   const passed =
     state.phase === "summary" && state.summary
       ? isPassingGrade(state.summary.grade, currentDay.passGrade)
       : false;
-  const hasNextDay = Boolean(getNextDayId(currentDayId));
+  const hasNextDay = Boolean(getNextDayId(currentDayId, currentSupportMode));
 
   if (activeSimulator === "hub") {
     return (
       <SimulatorHub
-        unlockedDays={unlockedDayIds.length}
-        totalDays={career.days.length}
-        gradedDays={Object.keys(bestGrades).length}
+        unlockedDays={unlockedSupportDays}
+        totalDays={totalSupportDays}
+        gradedDays={gradedSupportDays}
         onLaunchSupport={launchSupportSimulator}
         onLaunchInterview={launchInterviewSimulator}
         onLaunchShiftRoster={launchShiftRosterSimulator}
@@ -290,10 +355,27 @@ export default function App() {
   return (
     <Layout
       onBackToHub={backToHub}
+      eyebrow={currentSupportMode.headerEyebrow}
+      title={currentSupportMode.headerTitle}
+      shiftBadge={currentSupportMode.shiftBadge}
+      accent={currentSupportMode.accent}
+      onSwitchSupportMode={handleSwitchSupportMode}
       metrics={<MetricsBar metrics={visibleMetrics} phase={state.phase} />}
       chat={
-        view === "career_map" ? (
-          <CareerMap days={careerMapDays} onSelectDay={enterDay} onResetCareer={handleResetCareer} />
+        view === "mode_select" ? (
+          <SupportModeSelect
+            modes={supportModeList}
+            progressByMode={supportModeProgressByMode}
+            onSelectMode={handleSelectSupportMode}
+          />
+        ) : view === "career_map" ? (
+          <CareerMap
+            days={careerMapDays}
+            title={currentSupportMode.mapTitle}
+            intro={currentSupportMode.mapIntro}
+            onSelectDay={enterDay}
+            onResetCareer={handleResetCareer}
+          />
         ) : (
           <ChatPanel
             activeSession={activeSession}
@@ -309,7 +391,13 @@ export default function App() {
       achievements={
         <AchievementsPanel unlockedIds={state.achievements} stats={state.achievementStats} />
       }
-      knowledge={<KnowledgeBase policies={activeLevel.policies} />}
+      knowledge={
+        <KnowledgeBase
+          policies={
+            view === "shift" ? activeLevel.policies : currentSupportMode.policies
+          }
+        />
+      }
       replies={
         view === "shift" && state.phase === "summary" ? (
           <DaySummary

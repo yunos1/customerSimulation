@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Boxes, ChevronLeft } from "lucide-react";
+import { Boxes, ChevronLeft, Shuffle } from "lucide-react";
 
 interface LayoutProps {
   metrics: ReactNode;
@@ -9,7 +9,12 @@ interface LayoutProps {
   achievements: ReactNode;
   replies: ReactNode;
   alerts: ReactNode;
+  eyebrow?: string;
+  title?: string;
+  shiftBadge?: string;
+  accent?: "workplace" | "comedy" | "cyber";
   onBackToHub?: () => void;
+  onSwitchSupportMode?: () => void;
 }
 
 export function Layout({
@@ -20,16 +25,27 @@ export function Layout({
   achievements,
   replies,
   alerts,
+  eyebrow = "Simulator Box · Customer Support",
+  title = "亲亲，这边不建议呢",
+  shiftBadge = "实习席位 · 售后 03",
+  accent = "workplace",
   onBackToHub,
+  onSwitchSupportMode,
 }: LayoutProps) {
   return (
-    <main className="app-shell">
+    <main className={`app-shell app-shell-${accent}`}>
       <header className="topbar">
         <div>
-          <p className="eyebrow">Simulator Box · Customer Support</p>
-          <h1>亲亲，这边不建议呢</h1>
+          <p className="eyebrow">{eyebrow}</p>
+          <h1>{title}</h1>
         </div>
         <div className="topbar-actions">
+          {onSwitchSupportMode ? (
+            <button className="hub-back-button" type="button" onClick={onSwitchSupportMode}>
+              <Shuffle size={17} aria-hidden="true" />
+              切换模式
+            </button>
+          ) : null}
           {onBackToHub ? (
             <button className="hub-back-button" type="button" onClick={onBackToHub}>
               <ChevronLeft size={17} aria-hidden="true" />
@@ -38,7 +54,7 @@ export function Layout({
           ) : null}
           <div className="shift-badge">
             <Boxes size={15} aria-hidden="true" />
-            实习席位 · 售后 03
+            {shiftBadge}
           </div>
         </div>
       </header>

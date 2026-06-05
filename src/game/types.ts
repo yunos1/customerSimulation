@@ -33,6 +33,8 @@ export type CustomerType =
   | "policy_checker"
   | "passive_aggressive";
 
+export type CustomerScenarioSet = "realistic" | "comedy" | "cyber";
+
 export type Metrics = Record<MetricKey, number>;
 
 export type MetricDelta = Partial<Record<MetricKey, number>>;
@@ -120,6 +122,8 @@ export type Grade = "S" | "A" | "B" | "C" | "D";
 // 单天客户生成参数：替代 customerGenerator 中硬编码的数量与固定场景池，
 // 让职业模式的不同天数可以差异化难度。
 export interface DayGenerationConfig {
+  /** 客户场景组：真实售后 / 荒诞喜剧 / 赛博悬疑。 */
+  scenarioSet?: CustomerScenarioSet;
   /** 本天客户数，替代默认的 defaultCustomerCount。 */
   customerCount: number;
   /** 场景选择权重，偏向更难的客户类型（如 policy_checker / passive_aggressive）。 */
