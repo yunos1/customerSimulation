@@ -46,7 +46,7 @@ function registerCustomerReactionRoute(
       return;
     }
 
-    const apiKey = env.LPGPT_API_KEY || env.VITE_LPGPT_API_KEY;
+    const apiKey = env.AI_KEY || env.VITE_AI_KEY;
 
     if (!apiKey) {
       sendJson(response, 503, { error: "AI customer reply is not configured" });
@@ -57,8 +57,8 @@ function registerCustomerReactionRoute(
       const body = await readJsonBody(request);
       const line = await requestCustomerReaction(body, {
         apiKey,
-        baseUrl: env.LPGPT_BASE_URL || env.VITE_LPGPT_BASE_URL || defaultAiBaseUrl,
-        model: env.LPGPT_MODEL || env.VITE_LPGPT_MODEL || defaultAiModel,
+        baseUrl: env.AI_BASE_URL || env.VITE_AI_BASE_URL || defaultAiBaseUrl,
+        model: env.AI_MODEL || env.VITE_AI_MODEL || defaultAiModel,
       });
 
       sendJson(response, 200, { line });
