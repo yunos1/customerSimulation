@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { buildLevelConfig, career, getCareerDay, getNextDayId, isPassingGrade } from "./content/career";
 import { requestAiCustomerReply } from "./game/aiCustomerReply";
 import { createInitialState, gameReducer, getActiveSession } from "./game/reducer";
+import { setSimulatorFavicon } from "./hooks/useFavicon";
 import { useMetaProgress } from "./hooks/useMetaProgress";
 import type { UnlockableCard } from "./game/types";
 import { ChatPanel } from "./components/ChatPanel";
@@ -57,6 +58,10 @@ export default function App() {
         timeLeft: state.metrics.timeLeft,
       }
     : state.metrics;
+
+  useEffect(() => {
+    setSimulatorFavicon(activeSimulator);
+  }, [activeSimulator]);
 
   useEffect(() => {
     if (
