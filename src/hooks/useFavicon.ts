@@ -2,6 +2,7 @@ const faviconBySimulator = {
   hub: "favicons/hub.ico",
   support: "favicons/customer-support.ico",
   interview: "favicons/interview-coach.ico",
+  shiftRoster: "favicons/shift-roster.ico",
 } as const;
 
 type SimulatorId = keyof typeof faviconBySimulator;

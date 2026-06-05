@@ -24,6 +24,7 @@ interface SimulatorHubProps {
   gradedDays: number;
   onLaunchSupport: () => void;
   onLaunchInterview: () => void;
+  onLaunchShiftRoster: () => void;
 }
 
 interface SimulatorCard {
@@ -76,7 +77,19 @@ export function SimulatorHub({
   gradedDays,
   onLaunchSupport,
   onLaunchInterview,
+  onLaunchShiftRoster,
 }: SimulatorHubProps) {
+  const shiftRosterCard: SimulatorCard = {
+    id: "shift-roster",
+    title: "门店排班模拟器",
+    category: "零售运营",
+    description: "按客流、岗位、成本和公平度试算一天班表。",
+    status: "live",
+    tone: "red",
+    icon: Store,
+    meta: ["客流曲线", "岗位覆盖", "方案对比"],
+  };
+
   const supportCard: SimulatorCard = {
     id: "customer-support",
     title: "亲亲，这边不建议呢",
@@ -99,7 +112,7 @@ export function SimulatorHub({
     meta: ["3 个岗位", "9 位候选人", "延迟反馈"],
   };
 
-  const cards = [supportCard, interviewCard, ...upcomingSimulators];
+  const cards = [supportCard, shiftRosterCard, interviewCard, ...upcomingSimulators.filter((card) => card.id !== "shift-roster")];
 
   return (
     <main className="hub-shell">
@@ -164,7 +177,9 @@ export function SimulatorHub({
                   ? onLaunchSupport
                   : card.id === "interview-coach"
                     ? onLaunchInterview
-                    : undefined
+                    : card.id === "shift-roster"
+                      ? onLaunchShiftRoster
+                      : undefined
               }
             />
           ))}
