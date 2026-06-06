@@ -11,10 +11,10 @@ export interface Env {
 
 const MAP_SIZE = 1000;          // 地图格子数
 const CELL_SIZE = 20;           // px（客户端用）
-const TICK_MS = 130;            // 服务端 tick 间隔（稍慢，手感更好）
+const TICK_MS = 160;            // 服务端 tick 间隔（稍慢，手感更好）
 const FOOD_TARGET = 5000;       // 目标食物数量
 const INIT_LENGTH = 5;          // 初始蛇长
-const RESPAWN_MS = 3000;        // 死亡后复活等待
+const RESPAWN_MS = 5000;        // 死亡后复活等待
 const MAX_PLAYERS = 50;
 const BORDER_WARN = 50;         // 距边界多少格开始警告
 
@@ -70,10 +70,13 @@ export class SnakeRoom {
       return new Response("Expected WebSocket", { status: 426 });
     }
 
-    // 解析 token（query 参数，因为 WS 不能带 header）
+    // 解析 token（query 参数优先，其次 cookie session）
     const url = new URL(request.url);
-    const token = url.searchParams.get("token");
-    const payload = token ? await this.verifyToken(token) : null;
+    const qToken = url.searchParams.get("token");
+    const cookieToken = this.getCookieToken(request);
+    const payload = qToken ? await this.verifyToken(qToken)
+      : cookieToken ? await this.verifyToken(cookieToken)
+      : null;
 
     // 游客：用随机 id
     const id = (payload?.sub as string) ?? `guest_${crypto.randomUUID().slice(0, 8)}`;
@@ -368,6 +371,12 @@ export class SnakeRoom {
          SELECT user_id FROM snake_scores ORDER BY score DESC LIMIT 100
        )`
     ).run();
+  }
+
+  private getCookieToken(request: Request): string | null {
+    const cookie = request.headers.get("cookie") ?? "";
+    const m = cookie.match(/(?:^|;\s*)session=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : null;
   }
 
   // ── JWT 验证 ────────────────────────────────────────────────────────────────

@@ -40,7 +40,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", background: "#0a0e1a", overflow: "hidden" }}>
       <GameCanvas snapshotRef={snapshotRef} mapSize={mapSize} playerId={playerId} />
-      <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} />
+      <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={snapshot?.snakes.find(s => s.id === playerId)?.alive === false} />
       <GameHUD snapshot={snapshot} playerId={playerId} onBackToHub={onBackToHub} />
     </div>
   );

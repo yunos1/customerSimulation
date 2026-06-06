@@ -54,21 +54,32 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
     const gyStart = Math.floor(vy0);
     const gxEnd = Math.ceil(vx0 + W / CELL);
     const gyEnd = Math.ceil(vy0 + H / CELL);
+    ctx.beginPath();
     for (let gx = gxStart; gx <= gxEnd; gx++) {
       const sx = (gx - vx0) * CELL;
-      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+      ctx.moveTo(sx, 0); ctx.lineTo(sx, H);
     }
     for (let gy = gyStart; gy <= gyEnd; gy++) {
       const sy = (gy - vy0) * CELL;
-      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(W, sy); ctx.stroke();
+      ctx.moveTo(0, sy); ctx.lineTo(W, sy);
     }
+    ctx.stroke();
 
-    // 边界线
+    // 边界墙
     const [bx0, by0] = toScreen(0, 0);
     const [bx1, by1] = toScreen(mapSize, mapSize);
-    ctx.strokeStyle = "#ff3333";
-    ctx.lineWidth = 3;
+    ctx.save();
+    ctx.shadowColor = "#ff4444";
+    ctx.shadowBlur = 18;
+    ctx.strokeStyle = "#ff4444";
+    ctx.lineWidth = 5;
     ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
+    // 内侧第二层
+    ctx.shadowBlur = 8;
+    ctx.strokeStyle = "rgba(255,100,100,0.5)";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
+    ctx.restore();
 
     // 食物
     ctx.font = `${CELL - 2}px serif`;
