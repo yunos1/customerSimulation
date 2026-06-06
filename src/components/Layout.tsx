@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { Boxes, ChevronLeft, Shuffle } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { Boxes, ChevronLeft, Shuffle, Trophy, X } from "lucide-react";
 
 interface LayoutProps {
   metrics: ReactNode;
@@ -32,6 +32,8 @@ export function Layout({
   onBackToHub,
   onSwitchSupportMode,
 }: LayoutProps) {
+  const [showAchievements, setShowAchievements] = useState(false);
+
   return (
     <main className={`app-shell app-shell-${accent}`}>
       <header className="topbar">
@@ -40,6 +42,30 @@ export function Layout({
           <h1>{title}</h1>
         </div>
         <div className="topbar-actions">
+          <div className="achievements-popover-anchor">
+            <button
+              className="hub-back-button"
+              type="button"
+              onClick={() => setShowAchievements((v) => !v)}
+              aria-expanded={showAchievements}
+            >
+              <Trophy size={17} aria-hidden="true" />
+              成就
+            </button>
+            {showAchievements && (
+              <div className="achievements-popover">
+                <button
+                  className="achievements-popover-close"
+                  type="button"
+                  onClick={() => setShowAchievements(false)}
+                  aria-label="关闭成就面板"
+                >
+                  <X size={15} />
+                </button>
+                {achievements}
+              </div>
+            )}
+          </div>
           {onSwitchSupportMode ? (
             <button className="hub-back-button" type="button" onClick={onSwitchSupportMode}>
               <Shuffle size={17} aria-hidden="true" />
@@ -65,7 +91,6 @@ export function Layout({
         <div className="left-column">{chat}</div>
         <aside className="right-column">
           {status}
-          {achievements}
           {knowledge}
         </aside>
       </section>
