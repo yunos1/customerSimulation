@@ -26,6 +26,15 @@ function buildRequestBody(
     text: m.text,
   }));
 
+  const round = getActiveRound(session.customer, session.activeRoundIndex);
+  // 客人在回应客服后，会自然引出下一轮的新诉求；交给 AI 在同一条回复里承接。
+  const nextRoundIndex = session.activeRoundIndex + 1;
+  const hasNextConcern =
+    !round.resolveAfter && nextRoundIndex < session.customer.rounds.length;
+  const nextConcern = hasNextConcern
+    ? session.customer.rounds[nextRoundIndex].prompt
+    : undefined;
+
   return {
     customer: {
       name: session.customer.name,
@@ -35,13 +44,14 @@ function buildRequestBody(
       metrics: session.metrics,
     },
     round: {
-      prompt: getActiveRound(session.customer, session.activeRoundIndex).prompt,
-      preferredTags: getActiveRound(session.customer, session.activeRoundIndex).preferredTags,
-      riskyTags: getActiveRound(session.customer, session.activeRoundIndex).riskyTags,
+      prompt: round.prompt,
+      preferredTags: round.preferredTags,
+      riskyTags: round.riskyTags,
     },
     reply: { text: card.title, tags: card.tags },
     reactionKind,
     history,
+    ...(nextConcern ? { nextConcern } : {}),
     ...(stream ? { stream: true } : {}),
   };
 }

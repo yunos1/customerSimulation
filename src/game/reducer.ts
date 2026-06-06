@@ -392,8 +392,12 @@ function answerSession(
     ...nextMetrics,
     ...nextSessionMetrics,
   };
+  const aiLine = normalizeAiReactionLine(aiReactionLine);
+  // AI 成功时，回复里已自然承接了下一轮诉求，无需再单独追加 nextRound.prompt；
+  // 只有走本地静态回退时，才需要补一条剧本台词，否则玩家不知道客人的新需求。
+  const usedAiLine = aiLine !== undefined;
   const reactionLine =
-    normalizeAiReactionLine(aiReactionLine) ??
+    aiLine ??
     getReactionLine(
       session.customer,
       round,
@@ -458,10 +462,12 @@ function answerSession(
     activeRoundIndex: nextRoundIndex,
     metrics: nextSessionMetrics,
     replyHistory: [...session.replyHistory, createReplyMemory(card)],
-    messages: [
-      ...baseMessages,
-      createMessage("customer", nextRound.prompt),
-    ],
+    messages: usedAiLine
+      ? baseMessages
+      : [
+          ...baseMessages,
+          createMessage("customer", nextRound.prompt),
+        ],
   };
 
   return refreshAchievements({
@@ -782,7 +788,7 @@ function normalizeAiReactionLine(line?: string) {
     return undefined;
   }
 
-  return trimmedLine.length > 180 ? `${trimmedLine.slice(0, 180)}...` : trimmedLine;
+  return trimmedLine.length > 400 ? `${trimmedLine.slice(0, 400)}...` : trimmedLine;
 }
 
 function getPreferredSessionId(sessions: CustomerSession[], currentSessionId?: string) {
