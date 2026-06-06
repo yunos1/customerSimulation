@@ -1,18 +1,44 @@
 // 键盘 + 触摸圆盘 360° 输入
 import { useEffect, useRef } from "react";
 
+const STEER_MIN_INTERVAL_MS = 50;
+const STEER_MIN_DELTA_DEG = 3;
+
+function angleDelta(a: number, b: number) {
+  const diff = Math.abs(a - b) % 360;
+  return diff > 180 ? 360 - diff : diff;
+}
+
 export function useGameInput(onSteer: (angle: number) => void) {
   const onSteerRef = useRef(onSteer);
   useEffect(() => { onSteerRef.current = onSteer; });
 
   useEffect(() => {
+    let lastSentAngle: number | null = null;
+    let lastSentAt = 0;
+    const sendSteer = (angle: number, force = false) => {
+      const now = performance.now();
+      if (
+        !force &&
+        lastSentAngle !== null &&
+        angleDelta(angle, lastSentAngle) < STEER_MIN_DELTA_DEG &&
+        now - lastSentAt < STEER_MIN_INTERVAL_MS
+      ) {
+        return;
+      }
+      lastSentAngle = angle;
+      lastSentAt = now;
+      onSteerRef.current(angle);
+    };
+
     // ── 键盘 ──────────────────────────────────────────────────────────
     function onKey(e: KeyboardEvent) {
+      if (e.repeat) return;
       const map: Record<string, number> = {
         ArrowRight: 0, ArrowDown: 90, ArrowLeft: 180, ArrowUp: 270,
         d: 0, s: 90, a: 180, w: 270,
       };
-      if (e.key in map) onSteerRef.current(map[e.key]);
+      if (e.key in map) sendSteer(map[e.key], true);
     }
 
     // ── 触摸圆盘：以初始按下点为圆心，实时计算偏移角度 ──────────────
@@ -37,7 +63,7 @@ export function useGameInput(onSteer: (angle: number) => void) {
       if (dx * dx + dy * dy < 64) return;
       currentAngle = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
       cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => onSteerRef.current(currentAngle));
+      rafId = requestAnimationFrame(() => sendSteer(currentAngle));
     }
 
     function onTouchEnd() {

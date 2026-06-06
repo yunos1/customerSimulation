@@ -43,6 +43,8 @@ function lighten(hex: string, amount: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
+type VisibleSeg = { i: number; sx: number; sy: number };
+
 interface Props {
   bufferRef: React.RefObject<GameSnapshot[]>;
   tickMsRef: React.RefObject<number>;
@@ -56,13 +58,16 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     let rafId: number;
+    const prevBodies = new Map<string, { x: number; y: number }[]>();
+    const visibleSegs: VisibleSeg[] = [];
 
     const frame = () => {
       rafId = requestAnimationFrame(frame);
       const buf = bufferRef.current;
       if (!buf.length) return;
-      const ctx = canvas.getContext("2d")!;
       const W = canvas.width;
       const H = canvas.height;
 
@@ -84,7 +89,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
       const t = toT === fromT ? 1 : Math.max(0, Math.min(1, (renderT - fromT) / (toT - fromT)));
 
       // 上一帧各蛇 body（按 id 索引）
-      const prevBodies = new Map<string, { x: number; y: number }[]>();
+      prevBodies.clear();
       for (const s of from.snakes) prevBodies.set(s.id, s.body);
 
       // render-behind 使用 to 帧的蛇状态，插值到 from 帧
@@ -231,14 +236,17 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         const isMe = snake.id === playerId;
 
         // 计算视口内节点（内联插值，不产生整条蛇的新数组）
-        const vsegs: Array<{ i: number; sx: number; sy: number }> = [];
+        visibleSegs.length = 0;
         for (let i = 0; i < snake.body.length; i++) {
           const [wx, wy] = lerpSeg(snake.id, i, snake.body[i]);
           if (wx < vx0 - PAD || wx > vxMax + PAD || wy < vy0 - PAD || wy > vyMax + PAD) continue;
-          vsegs.push({ i, sx: (wx - vx0) * CELL, sy: (wy - vy0) * CELL });
+          const slot = visibleSegs[visibleSegs.length] ?? (visibleSegs[visibleSegs.length] = { i: 0, sx: 0, sy: 0 });
+          slot.i = i;
+          slot.sx = (wx - vx0) * CELL;
+          slot.sy = (wy - vy0) * CELL;
         }
         // 远处蛇服务端仅发头（bodyHead=true），视口外直接 continue
-        if (!vsegs.length) continue;
+        if (!visibleSegs.length) continue;
 
         ctx.save();
 
@@ -250,10 +258,10 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         ctx.lineJoin = "round";
         ctx.strokeStyle = skin.body[0];
         let drawing = false;
-        for (let vi = 0; vi < vsegs.length; vi++) {
-          const { i, sx, sy } = vsegs[vi];
+        for (let vi = 0; vi < visibleSegs.length; vi++) {
+          const { i, sx, sy } = visibleSegs[vi];
           const pcx = sx + R, pcy = sy + R;
-          if (!drawing || (vi > 0 && i !== vsegs[vi - 1].i + 1)) {
+          if (!drawing || (vi > 0 && i !== visibleSegs[vi - 1].i + 1)) {
             ctx.moveTo(pcx, pcy); drawing = true;
           } else {
             ctx.lineTo(pcx, pcy);
@@ -263,7 +271,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
         // 2. 彩色节点覆盖
         ctx.shadowBlur = 0;
-        for (const { i, sx, sy } of vsegs) {
+        for (const { i, sx, sy } of visibleSegs) {
           if (i === 0) continue;
           ctx.fillStyle = skin.body[i % skin.body.length];
           ctx.beginPath();
@@ -272,7 +280,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         }
 
         // 3. 蛇头
-        const headSeg = vsegs.find(({ i }) => i === 0);
+        const headSeg = visibleSegs[0]?.i === 0 ? visibleSegs[0] : visibleSegs.find(({ i }) => i === 0);
         if (headSeg) {
           const hcx = headSeg.sx + R, hcy = headSeg.sy + R;
           if (skin.glow) { ctx.shadowColor = skin.glow; ctx.shadowBlur = isMe ? 24 : 14; }

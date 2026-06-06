@@ -16,8 +16,10 @@ const FOOD_TARGET = 5000;
 const INIT_LENGTH = 5;
 const RESPAWN_MS = 5000;
 const MAX_PLAYERS = 50;
+const MAX_CONNECTIONS = MAX_PLAYERS * 3;
 const SAVE_INTERVAL_TICKS = 50;
 const FOOD_BUCKET = 25;
+const COLLISION_BUCKET = 2;
 // 近距离蛇发完整 body，远处蛇只发头（小地图够用），减少序列化开销
 const FULL_BODY_RADIUS = 80; // 世界格数
 // AI bot 常驻数量
@@ -57,6 +59,8 @@ const EFFECT_DUR: Record<string, number> = {
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
 type Vec2 = { x: number; y: number };
+type BodySegmentRef = { snakeId: string; x: number; y: number };
+type ClientConnection = { ws: WebSocket; snakeId: string };
 
 interface SnakeEffects {
   boost?: number; slow?: number; shield?: number;
@@ -78,6 +82,7 @@ interface Snake {
   isBot: boolean;
   effects: SnakeEffects;
   stepAccum: number; // 变速累加器（≥1 才真正移动一格）
+  sessionRecorded: boolean;
 }
 
 interface Food {
@@ -101,7 +106,7 @@ interface GameState {
 export class SnakeRoom {
   private state: DurableObjectState;
   private env: Env;
-  private clients: Map<string, WebSocket> = new Map();
+  private clients: Map<string, ClientConnection> = new Map();
   private game: GameState = { snakes: new Map(), foods: new Map(), foodGrid: new Map(), tick: 0 };
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -126,31 +131,38 @@ export class SnakeRoom {
     const username = (payload?.username as string) ?? `游客${id.slice(-4)}`;
     const avatarUrl = (payload?.avatar_url as string) ?? null;
 
-    if (this.clients.size >= MAX_PLAYERS) {
+    const alreadyInRoom = this.game.snakes.has(id);
+    if (!alreadyInRoom && this.humanPlayerCount() >= MAX_PLAYERS) {
+      return new Response("Room full", { status: 503 });
+    }
+    if (this.clients.size >= MAX_CONNECTIONS) {
       return new Response("Room full", { status: 503 });
     }
 
     const { 0: client, 1: server } = new WebSocketPair();
     server.accept();
 
-    this.clients.set(id, server);
+    const clientId = crypto.randomUUID();
+    this.clients.set(clientId, { ws: server, snakeId: id });
     if (!this.game.snakes.has(id)) {
       this.spawnSnake(id, username, avatarUrl, false);
     }
 
-    this.sendTo(id, { type: "init", mapSize: MAP_SIZE, cellSize: CELL_SIZE, tickMs: TICK_MS, playerId: id });
-    this.sendGameState(id);
+    this.sendToClient(clientId, { type: "init", mapSize: MAP_SIZE, cellSize: CELL_SIZE, tickMs: TICK_MS, playerId: id });
+    this.sendGameState(clientId, id);
 
     server.addEventListener("message", (ev) => {
-      try { this.handleMessage(id, JSON.parse(ev.data as string)); }
+      try { this.handleMessage(clientId, id, JSON.parse(ev.data as string)); }
       catch { /* ignore bad json */ }
     });
 
     server.addEventListener("close", () => {
-      this.clients.delete(id);
-      const snake = this.game.snakes.get(id);
-      if (snake && snake.alive && !snake.isBot) void this.saveScore(snake);
-      this.game.snakes.delete(id);
+      this.clients.delete(clientId);
+      if (this.connectionCountForSnake(id) === 0) {
+        const snake = this.game.snakes.get(id);
+        if (snake && !snake.isBot) void this.saveScore(snake, { recordSession: true });
+        this.game.snakes.delete(id);
+      }
       if (this.clients.size === 0) this.stopTick();
     });
 
@@ -191,6 +203,7 @@ export class SnakeRoom {
     }
 
     // 碰撞检测（头碰他人蛇身）
+    const collisionGrid = this.buildCollisionGrid();
     const deaths: Array<{ killer: string; victim: string }> = [];
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
@@ -198,16 +211,12 @@ export class SnakeRoom {
       const hasGhost = now < (snake.effects.ghost ?? 0);
       if (hasGhost) continue;
       const head = snake.body[0];
-      for (const other of this.game.snakes.values()) {
-        if (other.id === snake.id || !other.alive) continue;
-        for (let i = 0; i < other.body.length; i++) {
-          const seg = other.body[i];
-          if (Math.hypot(seg.x - head.x, seg.y - head.y) < 0.8) {
-            // 护盾：被撞身体的蛇有护盾，则不死（反伤无，仅豁免）
-            const hasShield = now < (snake.effects.shield ?? 0);
-            if (!hasShield) deaths.push({ killer: other.id, victim: snake.id });
-            break;
-          }
+      for (const seg of this.nearbyBodySegments(collisionGrid, head.x, head.y)) {
+        if (seg.snakeId === snake.id) continue;
+        if (Math.hypot(seg.x - head.x, seg.y - head.y) < 0.8) {
+          const hasShield = now < (snake.effects.shield ?? 0);
+          if (!hasShield) deaths.push({ killer: seg.snakeId, victim: snake.id });
+          break;
         }
       }
     }
@@ -265,7 +274,7 @@ export class SnakeRoom {
 
     if (this.game.tick % SAVE_INTERVAL_TICKS === 0) {
       for (const snake of this.game.snakes.values()) {
-        if (snake.alive && !snake.isBot) void this.saveScore(snake);
+          if (snake.alive && !snake.isBot) void this.saveScore(snake);
       }
     }
   }
@@ -367,13 +376,43 @@ export class SnakeRoom {
   // ── Bot AI ──────────────────────────────────────────────────────────────────
 
   private maintainBots() {
-    const botCount = Array.from(this.game.snakes.values()).filter((s) => s.isBot && s.alive).length;
+    const botCount = Array.from(this.game.snakes.values()).filter((s) => s.isBot).length;
     const need = BOT_TARGET - botCount;
     for (let i = 0; i < need; i++) {
       const idx = rand(BOT_NAMES.length);
       const botId = `bot_${crypto.randomUUID().slice(0, 6)}`;
       this.spawnSnake(botId, BOT_NAMES[idx], null, true);
     }
+  }
+
+  private buildCollisionGrid(): Map<string, BodySegmentRef[]> {
+    const grid = new Map<string, BodySegmentRef[]>();
+    for (const snake of this.game.snakes.values()) {
+      if (!snake.alive) continue;
+      for (const seg of snake.body) {
+        const key = SnakeRoom.collisionBucketKey(seg.x, seg.y);
+        let bucket = grid.get(key);
+        if (!bucket) {
+          bucket = [];
+          grid.set(key, bucket);
+        }
+        bucket.push({ snakeId: snake.id, x: seg.x, y: seg.y });
+      }
+    }
+    return grid;
+  }
+
+  private nearbyBodySegments(grid: Map<string, BodySegmentRef[]>, x: number, y: number): BodySegmentRef[] {
+    const out: BodySegmentRef[] = [];
+    const bx = Math.floor(x / COLLISION_BUCKET);
+    const by = Math.floor(y / COLLISION_BUCKET);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const bucket = grid.get(`${bx + dx},${by + dy}`);
+        if (bucket) out.push(...bucket);
+      }
+    }
+    return out;
   }
 
   private botSteer(snake: Snake) {
@@ -439,6 +478,7 @@ export class SnakeRoom {
       alive: true, score: 0, kills: 0,
       respawnAt: 0, joinedAt: Date.now(),
       isBot, effects: {} as SnakeEffects, stepAccum: 0,
+      sessionRecorded: false,
     });
   }
 
@@ -461,6 +501,10 @@ export class SnakeRoom {
 
   private static bucketKey(x: number, y: number): string {
     return `${Math.floor(x / FOOD_BUCKET)},${Math.floor(y / FOOD_BUCKET)}`;
+  }
+
+  private static collisionBucketKey(x: number, y: number): string {
+    return `${Math.floor(x / COLLISION_BUCKET)},${Math.floor(y / COLLISION_BUCKET)}`;
   }
 
   private addFood(x: number, y: number, type: number, value: number, tier: number, skill: string | undefined) {
@@ -510,11 +554,12 @@ export class SnakeRoom {
 
   // ── 消息处理 ────────────────────────────────────────────────────────────────
 
-  private handleMessage(id: string, msg: { type: string; angle?: number }) {
+  private handleMessage(clientId: string, id: string, msg: { type: string; angle?: number }) {
+    if (this.clients.get(clientId)?.snakeId !== id) return;
     const snake = this.game.snakes.get(id);
     if (!snake || snake.isBot) return;
     if (msg.type === "leave") {
-      if (snake.alive) void this.saveScore(snake);
+      void this.saveScore(snake, { recordSession: true });
       return;
     }
     if (!snake.alive) return;
@@ -538,7 +583,8 @@ export class SnakeRoom {
       effects: activeEffects(s.effects, now),
     }));
 
-    for (const [id] of this.clients) {
+    for (const [clientId, client] of this.clients) {
+      const id = client.snakeId;
       const snake = this.game.snakes.get(id);
       if (!snake) continue;
 
@@ -556,32 +602,48 @@ export class SnakeRoom {
 
       const visibleFoods = this.foodsInRange(cx, cy, vr);
 
-      this.sendTo(id, {
+      this.sendToClient(clientId, {
         type: "state", tick: this.game.tick, playerId: id,
         snakes, foods: visibleFoods, leaderboard,
       });
     }
   }
 
-  private sendGameState(id: string) {
+  private sendGameState(clientId: string, id: string) {
     const foods = Array.from(this.game.foods.values()).slice(0, 500);
-    this.sendTo(id, {
+    this.sendToClient(clientId, {
       type: "state", tick: 0, playerId: id,
       snakes: Array.from(this.game.snakes.values()),
       foods, leaderboard: [],
     });
   }
 
-  private sendTo(id: string, data: unknown) {
-    const ws = this.clients.get(id);
-    if (ws) {
-      try { ws.send(JSON.stringify(data)); } catch { /* closed */ }
+  private sendToClient(clientId: string, data: unknown) {
+    const client = this.clients.get(clientId);
+    if (client) {
+      try { client.ws.send(JSON.stringify(data)); } catch { /* closed */ }
     }
+  }
+
+  private humanPlayerCount(): number {
+    let count = 0;
+    for (const snake of this.game.snakes.values()) {
+      if (!snake.isBot) count++;
+    }
+    return count;
+  }
+
+  private connectionCountForSnake(snakeId: string): number {
+    let count = 0;
+    for (const client of this.clients.values()) {
+      if (client.snakeId === snakeId) count++;
+    }
+    return count;
   }
 
   // ── 数据库 ──────────────────────────────────────────────────────────────────
 
-  private async saveScore(snake: Snake) {
+  private async saveScore(snake: Snake, options: { recordSession?: boolean } = {}) {
     if (snake.id.startsWith("guest_") || snake.id.startsWith("bot_") || snake.score === 0) return;
     const now = Math.floor(Date.now() / 1000);
     await this.env.DB.prepare(
@@ -596,16 +658,18 @@ export class SnakeRoom {
          updated_at=excluded.updated_at`
     ).bind(snake.id, snake.username, snake.avatarUrl, snake.score, snake.kills, snake.skinId, now).run();
 
-    const duration = Math.floor((Date.now() - snake.joinedAt) / 1000);
-    await this.env.DB.prepare(
-      `INSERT INTO snake_sessions (user_id, score, kills, duration_s, played_at) VALUES (?,?,?,?,?)`
-    ).bind(snake.id, snake.score, snake.kills, duration, now).run();
-
     await this.env.DB.prepare(
       `DELETE FROM snake_scores WHERE user_id NOT IN (
          SELECT user_id FROM snake_scores ORDER BY score DESC LIMIT 100
        )`
     ).run();
+
+    if (!options.recordSession || snake.sessionRecorded) return;
+    const duration = Math.floor((Date.now() - snake.joinedAt) / 1000);
+    await this.env.DB.prepare(
+      `INSERT INTO snake_sessions (user_id, score, kills, duration_s, played_at) VALUES (?,?,?,?,?)`
+    ).bind(snake.id, snake.score, snake.kills, duration, now).run();
+    snake.sessionRecorded = true;
   }
 
   private getCookieToken(request: Request): string | null {
