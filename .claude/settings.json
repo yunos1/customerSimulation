@@ -3,7 +3,8 @@
     "allow": [
       "Bash(grep -E \"\\\\.\\(ts|tsx|json\\)$\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
-      "Bash(curl -s -m 15 \"https://api.github.com/repos/yunos1/customerSimulation/actions/runs?per_page=3\")"
+      "Bash(curl -s -m 15 \"https://api.github.com/repos/yunos1/customerSimulation/actions/runs?per_page=3\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173 --max-time 5)"
     ]
   }
 }
