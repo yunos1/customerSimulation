@@ -277,7 +277,7 @@ async function handleCustomerReaction(request: Request, env: Env) {
     return json({ line });
   } catch (error) {
     console.warn("[customer-reaction-api]", error);
-    return json({ error: "AI customer reply failed" }, 502);
+    return json({ error: "AI customer reply failed", detail: (error as Error).message }, 502);
   }
 }
 
