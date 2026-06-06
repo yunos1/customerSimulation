@@ -34,6 +34,14 @@ database_id = "107b869b-e7fc-4403-b6af-051534a52675"
 binding = "SESSIONS"
 id = "23a07ac64af7428db95d763eb43d56b0"
 
+[[durable_objects.bindings]]
+name = "SNAKE_ROOM"
+class_name = "SnakeRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SnakeRoom"]
+
 [[routes]]
 pattern = "sims.faster.hidns.vip/*"
 zone_id = "79f30ad37bdf1e14d574b4af1f48833e"

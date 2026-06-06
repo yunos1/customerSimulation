@@ -1,4 +1,5 @@
 import { requestCustomerReaction } from "./shared/customerReaction";
+export { SnakeRoom } from "./snake-room";
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -11,6 +12,7 @@ interface Env {
   LINUXDO_CLIENT_SECRET: string;
   JWT_SECRET: string;
   LINUXDO_PROXY?: string;
+  SNAKE_ROOM: DurableObjectNamespace;
 }
 
 const maxBodyBytes = 20_000;
@@ -36,6 +38,8 @@ export default {
       if (url.pathname === "/api/me") return handleMe(request, env);
       if (url.pathname === "/api/progress") return handleProgress(request, env);
       if (url.pathname === "/api/leaderboard") return handleLeaderboard(request, env);
+      if (url.pathname === "/api/snake/leaderboard") return handleSnakeLeaderboard(request, env);
+      if (url.pathname === "/api/snake/ws") return handleSnakeWs(request, env);
 
       return env.ASSETS.fetch(request);
     } catch (e) {
@@ -275,6 +279,21 @@ async function handleCustomerReaction(request: Request, env: Env) {
     console.warn("[customer-reaction-api]", error);
     return json({ error: "AI customer reply failed" }, 502);
   }
+}
+
+// ── Snake handlers ────────────────────────────────────────────────────────────
+
+async function handleSnakeLeaderboard(_request: Request, env: Env) {
+  const rows = await env.DB.prepare(
+    "SELECT user_id, username, avatar_url, score, kills FROM snake_scores ORDER BY score DESC LIMIT 100"
+  ).all();
+  return json({ leaderboard: rows.results });
+}
+
+async function handleSnakeWs(request: Request, env: Env) {
+  const id = env.SNAKE_ROOM.idFromName("main");
+  const room = env.SNAKE_ROOM.get(id);
+  return room.fetch(request);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

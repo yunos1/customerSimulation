@@ -32,6 +32,7 @@ import { SimulatorHub } from "./components/SimulatorHub";
 import { SupportModeSelect } from "./components/SupportModeSelect";
 import { TimeoutAlerts } from "./components/TimeoutAlerts";
 import { UnlockToast } from "./components/UnlockToast";
+import { SlackerMoment } from "./components/SlackerMoment";
 import { unlockableCards } from "./content/unlockableCards";
 import { useAuth } from "./hooks/useAuth";
 import { useProgressSync } from "./hooks/useProgressSync";
@@ -49,7 +50,7 @@ export default function App() {
   const currentModeProgress = getModeProgress(meta, currentSupportMode.id);
   const { currentDayId, unlockedDayIds, bestGrades } = currentModeProgress;
   const [activeSimulator, setActiveSimulator] = useState<
-    "hub" | "support" | "interview" | "shiftRoster" | "clinicTriage"
+    "hub" | "support" | "interview" | "shiftRoster" | "clinicTriage" | "slacker"
   >("hub");
   // mode_select / career_map 是客服模块的选择视图；进入某天后才创建 per-day 引擎 state。
   const [view, setView] = useState<"mode_select" | "career_map" | "shift">("mode_select");
@@ -206,6 +207,7 @@ export default function App() {
   const launchInterviewSimulator = useCallback(() => setActiveSimulator("interview"), []);
   const launchShiftRosterSimulator = useCallback(() => setActiveSimulator("shiftRoster"), []);
   const launchClinicTriageSimulator = useCallback(() => setActiveSimulator("clinicTriage"), []);
+  const launchSlackerSimulator = useCallback(() => setActiveSimulator("slacker"), []);
   const backToHub = useCallback(() => setActiveSimulator("hub"), []);
   const handleSwitchSupportMode = useCallback(() => {
     recordedSummaryRef.current = undefined;
@@ -365,6 +367,7 @@ export default function App() {
         onLaunchInterview={launchInterviewSimulator}
         onLaunchShiftRoster={launchShiftRosterSimulator}
         onLaunchClinicTriage={launchClinicTriageSimulator}
+        onLaunchSlacker={launchSlackerSimulator}
         user={user ?? null}
         authLoading={authLoading}
         onLogin={login}
@@ -383,6 +386,10 @@ export default function App() {
 
   if (activeSimulator === "clinicTriage") {
     return <ClinicTriageSimulator onBackToHub={backToHub} />;
+  }
+
+  if (activeSimulator === "slacker") {
+    return <SlackerMoment user={user ?? null} onBackToHub={backToHub} />;
   }
 
   return (

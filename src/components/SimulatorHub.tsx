@@ -4,6 +4,7 @@ import {
   Boxes,
   Briefcase,
   CirclePlay,
+  Fish,
   Lock,
   MessageSquareText,
   MicVocal,
@@ -27,6 +28,7 @@ interface SimulatorHubProps {
   onLaunchInterview: () => void;
   onLaunchShiftRoster: () => void;
   onLaunchClinicTriage: () => void;
+  onLaunchSlacker: () => void;
   user: AuthUser | null;
   authLoading: boolean;
   onLogin: () => void;
@@ -52,6 +54,7 @@ export function SimulatorHub({
   onLaunchInterview,
   onLaunchShiftRoster,
   onLaunchClinicTriage,
+  onLaunchSlacker,
   user,
   authLoading,
   onLogin,
@@ -101,8 +104,20 @@ export function SimulatorHub({
     meta: ["优先级", "等待恶化", "资源槽位"],
   };
 
+  const slackerCard: SimulatorCard = {
+    id: "slacker-moment",
+    title: "摸鱼时刻",
+    category: "在线游戏",
+    description: "1000×1000 超大地图多人贪吃蛇，360°自由移动，边吃边卷。",
+    status: "live",
+    tone: "amber",
+    icon: Fish,
+    meta: ["在线多人", "10 套皮肤", "全球排行榜"],
+  };
+
   const cards = [
     supportCard,
+    slackerCard,
     shiftRosterCard,
     clinicTriageCard,
     interviewCard,
@@ -134,9 +149,9 @@ export function SimulatorHub({
               <CirclePlay size={20} aria-hidden="true" />
               启动客服模拟器
             </button>
-            <a className="hub-secondary-action" href="#simulator-library">
-              <Sparkles size={18} aria-hidden="true" />
-              浏览插槽
+            <a className="hub-secondary-action hub-slacker-btn" href="#simulator-library">
+              <Fish size={18} aria-hidden="true" className="hub-fish-icon" />
+              摸鱼时刻
             </a>
           </div>
 
@@ -180,7 +195,9 @@ export function SimulatorHub({
                       ? onLaunchShiftRoster
                       : card.id === "clinic-triage"
                         ? onLaunchClinicTriage
-                        : undefined
+                        : card.id === "slacker-moment"
+                          ? onLaunchSlacker
+                          : undefined
               }
             />
           ))}

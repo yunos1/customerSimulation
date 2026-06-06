@@ -245,6 +245,20 @@
   background: rgba(125, 245, 231, 0.14);
 }
 
+@keyframes fish-swim {
+  0%, 100% { transform: rotate(-12deg) translateX(0); }
+  50%       { transform: rotate(12deg) translateX(2px); }
+}
+
+.hub-fish-icon {
+  animation: fish-swim 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.hub-slacker-btn:hover .hub-fish-icon {
+  animation-duration: 0.5s;
+}
+
 .hub-readouts {
   display: flex;
   flex-wrap: wrap;
