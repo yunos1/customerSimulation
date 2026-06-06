@@ -1,6 +1,6 @@
 // 主游戏画布：render-behind 插值 + sprite 缓存食物 + 视口内联渲染
 import { useEffect, useRef } from "react";
-import { SKINS, FOODS, FOOD_TYPE_TIER, SKILL_BY_KEY } from "./skins";
+import { SKINS, FOODS, FOOD_TYPE_TIER, SKILL_BY_KEY, SKILL_FOODS } from "./skins";
 import type { GameSnapshot } from "./useSnakeGame";
 
 const CELL = 26; // px per cell
@@ -16,6 +16,7 @@ const RENDER_BEHIND_MS = 250;
 // 每帧 shadowBlur + save/restore，吃食物出现时卡顿消失。
 
 const spriteCache = new Map<string, HTMLCanvasElement>();
+let spritesWarmed = false;
 
 function getSprite(emoji: string, glowColor: string, size: number): HTMLCanvasElement {
   const key = `${emoji}:${glowColor}:${size}`;
@@ -38,6 +39,24 @@ function getSprite(emoji: string, glowColor: string, size: number): HTMLCanvasEl
   return cv;
 }
 
+function warmSprites() {
+  if (spritesWarmed) return;
+  spritesWarmed = true;
+  for (let type = 0; type < FOODS.length; type++) {
+    const glyph = FOODS[type];
+    const tier = FOOD_TYPE_TIER[type] ?? 0;
+    getSprite(glyph, "", CELL);
+    if (tier === 1) getSprite(glyph, "#ffd700", CELL);
+    if (tier === 2) {
+      getSprite(glyph, "#00f5ff", CELL);
+      getSprite(glyph, "#00f5ff", CELL + 2);
+    }
+  }
+  for (const sk of SKILL_FOODS) {
+    getSprite(sk.emoji, sk.color, CELL + 4);
+  }
+}
+
 function lighten(hex: string, amount: number): string {
   const n = parseInt(hex.replace("#", ""), 16);
   const r = Math.min(255, ((n >> 16) & 0xff) + Math.round(255 * amount));
@@ -47,6 +66,10 @@ function lighten(hex: string, amount: number): string {
 }
 
 type VisibleSeg = { i: number; sx: number; sy: number };
+type PrevBody = {
+  body: { x: number; y: number }[];
+  indexMap?: Map<number, { x: number; y: number }>;
+};
 
 interface Props {
   bufferRef: React.RefObject<GameSnapshot[]>;
@@ -63,8 +86,10 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    warmSprites();
     let rafId: number;
-    const prevBodies = new Map<string, { x: number; y: number }[]>();
+    const prevBodies = new Map<string, PrevBody>();
+    const prevIndexMaps = new Map<string, Map<number, { x: number; y: number }>>();
     const visibleSegs: VisibleSeg[] = [];
     const tmpPoint = { x: 0, y: 0 };
     let lowDetailUntil = 0;
@@ -96,7 +121,22 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
       // 上一帧各蛇 body（按 id 索引）
       prevBodies.clear();
-      for (const s of from.snakes) prevBodies.set(s.id, s.body);
+      for (const s of from.snakes) {
+        const indexes = s.bodyIndexes;
+        let indexMap: Map<number, { x: number; y: number }> | undefined;
+        if (indexes) {
+          indexMap = prevIndexMaps.get(s.id);
+          if (!indexMap) {
+            indexMap = new Map();
+            prevIndexMaps.set(s.id, indexMap);
+          }
+          indexMap.clear();
+          for (let i = 0; i < s.body.length; i++) {
+            indexMap.set(indexes[i] ?? i, s.body[i]);
+          }
+        }
+        prevBodies.set(s.id, { body: s.body, indexMap });
+      }
 
       // render-behind 使用 to 帧的蛇状态，插值到 from 帧
       const snapshot = to;
@@ -109,13 +149,13 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
           out.y = seg.y;
           return out;
         }
-        const pb = prevBodies.get(id);
-        if (!pb) {
+        const prev = prevBodies.get(id);
+        if (!prev) {
           out.x = seg.x;
           out.y = seg.y;
           return out;
         }
-        const p = pb[i];
+        const p = prev.indexMap?.get(i) ?? prev.body[i];
         if (!p) {
           out.x = seg.x;
           out.y = seg.y;
@@ -192,6 +232,12 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         if (food.skill) {
           const sk = SKILL_BY_KEY[food.skill];
           if (sk) {
+            if (lowDetail) {
+              const sprite = getSprite(sk.emoji, sk.color, CELL + 4);
+              const s = CELL + 4;
+              ctx.drawImage(sprite, px - s, py - s, s * 2, s * 2);
+              continue;
+            }
             const phase = (food.x * 12.9898 + food.y * 78.233) % (Math.PI * 2);
             const tSec = now / 1000;
             const rot = (tSec * 1.8 + phase) % (Math.PI * 2);
@@ -264,16 +310,18 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         if (!snake.alive || !snake.body.length) continue;
         const skin = SKINS[snake.skinId % SKINS.length];
         const isMe = snake.id === playerId;
+        const bodyIndexes = snake.bodyIndexes;
 
         // 计算视口内节点（内联插值，不产生整条蛇的新数组）
         let visibleCount = 0;
         for (let i = 0; i < snake.body.length; i++) {
-          lerpSeg(snake.id, i, snake.body[i], tmpPoint);
+          const bodyIndex = bodyIndexes?.[i] ?? i;
+          lerpSeg(snake.id, bodyIndex, snake.body[i], tmpPoint);
           const wx = tmpPoint.x;
           const wy = tmpPoint.y;
           if (wx < vx0 - PAD || wx > vxMax + PAD || wy < vy0 - PAD || wy > vyMax + PAD) continue;
           const slot = visibleSegs[visibleCount] ?? (visibleSegs[visibleCount] = { i: 0, sx: 0, sy: 0 });
-          slot.i = i;
+          slot.i = bodyIndex;
           slot.sx = (wx - vx0) * CELL;
           slot.sy = (wy - vy0) * CELL;
           visibleCount++;
@@ -354,7 +402,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         // 用户名
         const h0 = snake.body[0];
         if ((!lowDetail || isMe) && h0.x >= vx0 - PAD && h0.x <= vxMax + PAD) {
-          lerpSeg(snake.id, 0, h0, tmpPoint);
+          lerpSeg(snake.id, bodyIndexes?.[0] ?? 0, h0, tmpPoint);
           const nhx = (tmpPoint.x - vx0) * CELL, nhy = (tmpPoint.y - vy0) * CELL;
           ctx.shadowColor = skin.glow ?? "transparent";
           ctx.shadowBlur = 5;

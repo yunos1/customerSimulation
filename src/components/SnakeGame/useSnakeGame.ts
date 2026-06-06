@@ -13,6 +13,10 @@ export interface SnakeInfo {
   alive: boolean; score: number; kills: number; respawnAt: number;
   // 远处蛇为节省带宽只发蛇头：bodyHead=true 表示 body 仅含头部一节
   bodyHead?: boolean;
+  // bodyPartial=true 表示服务端已按当前视野裁剪 body，仅含附近片段。
+  bodyPartial?: boolean;
+  // 裁剪 body 中每一节对应完整蛇身的原始索引，用于插值和断开不连续片段。
+  bodyIndexes?: number[];
   effects?: SnakeEffects;
   isBot?: boolean;
 }
@@ -32,6 +36,7 @@ export interface GameSnapshot {
 
 // render-behind 缓冲保留最近 N 帧，渲染时刻回退 ~1.5 tick，永远落在两帧之间插值
 const BUFFER_SIZE = 6;
+const SNAPSHOT_STATE_INTERVAL_MS = 200;
 
 export function useSnakeGame(token: string | null) {
   // bufferRef：最近若干帧快照（按到达顺序，末尾最新），供 GameCanvas 渲染回放。
@@ -39,6 +44,7 @@ export function useSnakeGame(token: string | null) {
   const bufferRef = useRef<GameSnapshot[]>([]);
   const tickMsRef = useRef<number>(200);
   const lastArriveRef = useRef<number>(0);
+  const lastStateUpdateRef = useRef<number>(0);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [mapSize, setMapSize] = useState(1000);
@@ -75,7 +81,10 @@ export function useSnakeGame(token: string | null) {
         const buf = bufferRef.current;
         buf.push(snap);
         if (buf.length > BUFFER_SIZE) buf.shift();
-        setSnapshot(snap);
+        if (now - lastStateUpdateRef.current >= SNAPSHOT_STATE_INTERVAL_MS) {
+          lastStateUpdateRef.current = now;
+          setSnapshot(snap);
+        }
       }
     };
 

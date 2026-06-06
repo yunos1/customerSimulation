@@ -20,6 +20,8 @@ const MAX_CONNECTIONS = MAX_PLAYERS * 3;
 const SAVE_INTERVAL_TICKS = 50;
 const FOOD_BUCKET = 25;
 const COLLISION_BUCKET = 2;
+const VIEW_RADIUS = 60;
+const BODY_VIEW_PADDING = 4;
 // 近距离蛇发完整 body，远处蛇只发头（小地图够用），减少序列化开销
 const FULL_BODY_RADIUS = 80; // 世界格数
 // AI bot 常驻数量
@@ -590,14 +592,12 @@ export class SnakeRoom {
 
       const cx = snake.alive && snake.body.length ? snake.body[0].x : MAP_SIZE / 2;
       const cy = snake.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
-      const vr = 60;
+      const vr = VIEW_RADIUS;
 
-      // 远距离蛇只发蛇头节省带宽
+      // 逐客户端按视野裁剪蛇身，长蛇不会把整条 body 都发给前端。
       const snakes = snakeInfoFull.map((s) => {
-        if (s.id === id || !s.alive || !s.body.length) return s;
-        const dist = Math.hypot(s.body[0].x - cx, s.body[0].y - cy);
-        if (dist <= FULL_BODY_RADIUS) return s;
-        return { ...s, body: [s.body[0]], bodyHead: true };
+        if (!s.alive || !s.body.length) return s;
+        return this.clipSnakeBodyForView(s, id, cx, cy, vr);
       });
 
       const visibleFoods = this.foodsInRange(cx, cy, vr);
@@ -607,6 +607,34 @@ export class SnakeRoom {
         snakes, foods: visibleFoods, leaderboard,
       });
     }
+  }
+
+  private clipSnakeBodyForView<
+    T extends { id: string; body: Vec2[]; alive: boolean },
+  >(snake: T, viewerId: string, cx: number, cy: number, vr: number) {
+    const head = snake.body[0];
+    const dx = head.x - cx;
+    const dy = head.y - cy;
+    if (snake.id !== viewerId && dx * dx + dy * dy > FULL_BODY_RADIUS * FULL_BODY_RADIUS) {
+      return { ...snake, body: [head], bodyIndexes: [0], bodyHead: true };
+    }
+
+    const minX = cx - vr - BODY_VIEW_PADDING;
+    const maxX = cx + vr + BODY_VIEW_PADDING;
+    const minY = cy - vr - BODY_VIEW_PADDING;
+    const maxY = cy + vr + BODY_VIEW_PADDING;
+    const body: Vec2[] = [];
+    const bodyIndexes: number[] = [];
+    for (let index = 0; index < snake.body.length; index++) {
+      const seg = snake.body[index];
+      if (index === 0 || (seg.x >= minX && seg.x <= maxX && seg.y >= minY && seg.y <= maxY)) {
+        body.push(seg);
+        bodyIndexes.push(index);
+      }
+    }
+
+    if (body.length === snake.body.length) return snake;
+    return { ...snake, body, bodyIndexes, bodyPartial: true };
   }
 
   private sendGameState(clientId: string, id: string) {
