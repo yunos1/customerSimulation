@@ -8,10 +8,10 @@ export const sessionTiming = {
   /** 客户等待超过该秒数触发红色超时提醒。 */
   timeoutAlertSeconds: 120,
   /** 同时可保持的最大活跃会话数。 */
-  maxOpenSessions: 3,
+  maxOpenSessions: 2,
   /** 新客户接入的最小/最大延迟（秒）。 */
-  minArrivalDelay: 18,
-  maxArrivalDelay: 35,
+  minArrivalDelay: 60,
+  maxArrivalDelay: 100,
   /** 每次 tick 触发随机事件的概率分母（1/N）。 */
   randomEventChance: 20,
 } as const;
