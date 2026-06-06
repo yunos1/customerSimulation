@@ -442,7 +442,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
     rafId = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(rafId);
-  }, [bufferRef, playerId, mapSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playerId, mapSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 响应式尺寸
   useEffect(() => {
@@ -450,9 +450,10 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
     if (!canvas) return;
     const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
     resize();
-    const ro = new ResizeObserver(resize);
+    let timer: ReturnType<typeof setTimeout>;
+    const ro = new ResizeObserver(() => { clearTimeout(timer); timer = setTimeout(resize, 100); });
     ro.observe(canvas);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); clearTimeout(timer); };
   }, []);
 
   return (

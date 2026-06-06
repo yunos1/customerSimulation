@@ -1,5 +1,5 @@
 // 游戏 HUD：排行榜（首屏5条，滚动看50）+ 分数 + 复活倒计时 + buff状态条 + 击杀播报
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { SKILL_BY_KEY } from "./skins";
 import type { GameSnapshot, LeaderEntry } from "./useSnakeGame";
 
@@ -9,14 +9,14 @@ interface Props {
   onBackToHub: () => void;
 }
 
-export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
+export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
   const [kills, setKills] = useState<string[]>([]);
   const prevKillsRef = useRef(0);
   const prevLeaderIndexRef = useRef(-1);
   const leaderScrollRef = useRef<HTMLDivElement>(null);
 
-  const me = snapshot?.snakes.find((s) => s.id === playerId);
-  const leaderboard: LeaderEntry[] = snapshot?.leaderboard ?? [];
+  const me = useMemo(() => snapshot?.snakes.find((s) => s.id === playerId), [snapshot, playerId]);
+  const leaderboard: LeaderEntry[] = useMemo(() => snapshot?.leaderboard ?? [], [snapshot]);
 
   useEffect(() => {
     if (!me) return;
@@ -41,12 +41,13 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
     ? Math.max(0, Math.ceil((me.respawnAt - Date.now()) / 1000))
     : null;
 
-  // 当前生效 buff（服务端传来的到期时间戳，客户端只显示剩余秒）
-  const effects = me?.effects ?? {};
-  const now = Date.now();
-  const activeBuffs = (Object.keys(effects) as (keyof typeof effects)[])
-    .map((k) => ({ key: k, remaining: Math.max(0, Math.ceil(((effects[k] ?? 0) - now) / 1000)) }))
-    .filter((b) => b.remaining > 0);
+  const activeBuffs = useMemo(() => {
+    const effects = me?.effects ?? {};
+    const now = Date.now();
+    return (Object.keys(effects) as (keyof typeof effects)[])
+      .map((k) => ({ key: k, remaining: Math.max(0, Math.ceil(((effects[k] ?? 0) - now) / 1000)) }))
+      .filter((b) => b.remaining > 0);
+  }, [me?.effects]);
 
   return (
     <>
@@ -166,4 +167,4 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
       </div>
     </>
   );
-}
+});
