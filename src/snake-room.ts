@@ -11,7 +11,7 @@ export interface Env {
 
 const MAP_SIZE = 1000;          // 地图格子数
 const CELL_SIZE = 20;           // px（客户端用）
-const TICK_MS = 100;            // 服务端 tick 间隔
+const TICK_MS = 130;            // 服务端 tick 间隔（稍慢，手感更好）
 const FOOD_TARGET = 5000;       // 目标食物数量
 const INIT_LENGTH = 5;          // 初始蛇长
 const RESPAWN_MS = 3000;        // 死亡后复活等待
@@ -151,7 +151,7 @@ export class SnakeRoom {
         // 从 index 1 开始（头到头不算，平等碰撞时都死）
         for (let i = 0; i < other.body.length; i++) {
           const seg = other.body[i];
-          if (seg.x === head.x && seg.y === head.y) {
+          if (Math.hypot(seg.x - head.x, seg.y - head.y) < 0.8) {
             deaths.push({ killer: other.id, victim: snake.id });
             break;
           }
@@ -170,17 +170,17 @@ export class SnakeRoom {
       this.killSnake(victimSnake);
     }
 
-    // 吃食物
+    // 吃食物（浮点坐标，检测半径 0.8 格）
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
       const head = snake.body[0];
-      const key = `${head.x},${head.y}`;
-      const food = this.game.foods.get(key);
-      if (food) {
-        snake.score += food.value;
-        this.game.foods.delete(key);
-        // 增长：尾部复制一段
-        snake.body.push({ ...snake.body[snake.body.length - 1] });
+      for (const [key, food] of this.game.foods) {
+        if (Math.hypot(food.x - head.x, food.y - head.y) < 0.8) {
+          snake.score += food.value;
+          this.game.foods.delete(key);
+          snake.body.push({ ...snake.body[snake.body.length - 1] });
+          break;
+        }
       }
     }
 
@@ -201,17 +201,17 @@ export class SnakeRoom {
   }
 
   private moveSnake(snake: Snake) {
-    // 吸附到最近四方向，避免触摸斜角导致对角跳格
-    const snapped = (Math.round(snake.angle / 90) * 90) % 360;
-    const rad = (snapped * Math.PI) / 180;
-    const dx = Math.round(Math.cos(rad));
-    const dy = Math.round(Math.sin(rad));
+    const rad = (snake.angle * Math.PI) / 180;
     const head = snake.body[0];
-    // 穿墙传送，避免卡边界
-    const nx = ((head.x + dx) % MAP_SIZE + MAP_SIZE) % MAP_SIZE;
-    const ny = ((head.y + dy) % MAP_SIZE + MAP_SIZE) % MAP_SIZE;
+    const nx = head.x + Math.cos(rad);
+    const ny = head.y + Math.sin(rad);
 
-    // 身体前移（不检测自撞）
+    // 碰墙死亡
+    if (nx < 0 || nx >= MAP_SIZE || ny < 0 || ny >= MAP_SIZE) {
+      this.killSnake(snake);
+      return;
+    }
+
     snake.body.unshift({ x: nx, y: ny });
     snake.body.pop();
   }

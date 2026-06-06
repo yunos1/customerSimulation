@@ -55,7 +55,7 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
       <div style={{
         position: "absolute", top: 48, left: 12,
         background: "rgba(0,0,0,0.65)", borderRadius: 8, padding: "8px 12px",
-        minWidth: 160, pointerEvents: "none",
+        minWidth: 160, maxHeight: 220, overflowY: "auto", pointerEvents: "none",
       }}>
         <div style={{ color: "#ffd700", fontSize: 12, marginBottom: 6, fontWeight: "bold" }}>🏆 排行榜</div>
         {leaderboard.map((entry, i) => (
