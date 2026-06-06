@@ -35,7 +35,7 @@ export async function requestCustomerReaction(body: unknown, config: AiConfig) {
 
   if (!response.ok) {
     const peek = (await response.text().catch(() => "")).slice(0, 300).replace(/\s+/g, " ");
-    throw new Error(`AI request failed with ${response.status} via ${new URL(baseUrl).host} :: ${peek}`);
+    throw new Error(`AI request failed with ${response.status} url=${baseUrl}/chat/completions :: ${peek}`);
   }
 
   const data = (await response.json()) as {
