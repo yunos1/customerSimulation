@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 
 const STEER_MIN_INTERVAL_MS = 50;
 const STEER_MIN_DELTA_DEG = 3;
+const STEER_IMMEDIATE_DELTA_DEG = 18;
 
 function angleDelta(a: number, b: number) {
   const diff = Math.abs(a - b) % 360;
@@ -18,11 +19,11 @@ export function useGameInput(onSteer: (angle: number) => void) {
     let lastSentAt = 0;
     const sendSteer = (angle: number, force = false) => {
       const now = performance.now();
+      const delta = lastSentAngle === null ? Infinity : angleDelta(angle, lastSentAngle);
       if (
         !force &&
         lastSentAngle !== null &&
-        angleDelta(angle, lastSentAngle) < STEER_MIN_DELTA_DEG &&
-        now - lastSentAt < STEER_MIN_INTERVAL_MS
+        (delta < STEER_MIN_DELTA_DEG || (now - lastSentAt < STEER_MIN_INTERVAL_MS && delta < STEER_IMMEDIATE_DELTA_DEG))
       ) {
         return;
       }

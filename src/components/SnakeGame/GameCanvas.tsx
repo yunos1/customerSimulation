@@ -4,6 +4,9 @@ import { SKINS, FOODS, FOOD_TYPE_TIER, SKILL_BY_KEY } from "./skins";
 import type { GameSnapshot } from "./useSnakeGame";
 
 const CELL = 26; // px per cell
+const FRAME_BUDGET_MS = 18;
+const LOW_DETAIL_MS = 1200;
+const EYE_SIDES = [1, -1] as const;
 // 渲染回退量：渲染此刻之前 N 毫秒的画面，保证始终落在两帧快照之间插值，
 // 消除"追上最新帧后画面冻结"的卡顿。
 const RENDER_BEHIND_MS = 250;
@@ -63,9 +66,12 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
     let rafId: number;
     const prevBodies = new Map<string, { x: number; y: number }[]>();
     const visibleSegs: VisibleSeg[] = [];
+    const tmpPoint = { x: 0, y: 0 };
+    let lowDetailUntil = 0;
 
     const frame = () => {
       rafId = requestAnimationFrame(frame);
+      const frameStart = performance.now();
       const buf = bufferRef.current;
       if (!buf.length) return;
       const W = canvas.width;
@@ -97,21 +103,35 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
       // 插值蛇身：服务端每 tick unshift 头 pop 尾，index 对齐所以逐索引插值顺滑。
       // 只对视口内节点执行，不再分配整条蛇的新数组。
-      function lerpSeg(id: string, i: number, seg: { x: number; y: number }): [number, number] {
-        if (t >= 1) return [seg.x, seg.y];
+      function lerpSeg(id: string, i: number, seg: { x: number; y: number }, out: { x: number; y: number }) {
+        if (t >= 1) {
+          out.x = seg.x;
+          out.y = seg.y;
+          return out;
+        }
         const pb = prevBodies.get(id);
-        if (!pb) return [seg.x, seg.y];
+        if (!pb) {
+          out.x = seg.x;
+          out.y = seg.y;
+          return out;
+        }
         const p = pb[i];
-        if (!p) return [seg.x, seg.y];
-        return [p.x + (seg.x - p.x) * t, p.y + (seg.y - p.y) * t];
+        if (!p) {
+          out.x = seg.x;
+          out.y = seg.y;
+          return out;
+        }
+        out.x = p.x + (seg.x - p.x) * t;
+        out.y = p.y + (seg.y - p.y) * t;
+        return out;
       }
 
       const me = snapshot.snakes.find((s) => s.id === playerId);
       // 计算玩家头部插值坐标，用于视口中心
       let cx = mapSize / 2, cy = mapSize / 2;
       if (me?.alive && me.body.length) {
-        const [hx, hy] = lerpSeg(me.id, 0, me.body[0]);
-        cx = hx; cy = hy;
+        lerpSeg(me.id, 0, me.body[0], tmpPoint);
+        cx = tmpPoint.x; cy = tmpPoint.y;
       }
 
       const vx0 = cx - W / 2 / CELL;
@@ -119,35 +139,42 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
       const vxMax = vx0 + W / CELL;
       const vyMax = vy0 + H / CELL;
       const PAD = 2;
+      const lowDetail = frameStart < lowDetailUntil;
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0e1a";
       ctx.fillRect(0, 0, W, H);
 
       // 网格线
-      ctx.strokeStyle = "rgba(255,255,255,0.04)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let gx = Math.floor(vx0); gx <= Math.ceil(vxMax); gx++) {
-        const sx = (gx - vx0) * CELL;
-        ctx.moveTo(sx, 0); ctx.lineTo(sx, H);
+      if (!lowDetail) {
+        ctx.strokeStyle = "rgba(255,255,255,0.04)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let gx = Math.floor(vx0); gx <= Math.ceil(vxMax); gx++) {
+          const sx = (gx - vx0) * CELL;
+          ctx.moveTo(sx, 0); ctx.lineTo(sx, H);
+        }
+        for (let gy = Math.floor(vy0); gy <= Math.ceil(vyMax); gy++) {
+          const sy = (gy - vy0) * CELL;
+          ctx.moveTo(0, sy); ctx.lineTo(W, sy);
+        }
+        ctx.stroke();
       }
-      for (let gy = Math.floor(vy0); gy <= Math.ceil(vyMax); gy++) {
-        const sy = (gy - vy0) * CELL;
-        ctx.moveTo(0, sy); ctx.lineTo(W, sy);
-      }
-      ctx.stroke();
 
-      // 边界墙
-      const bx0 = (0 - vx0) * CELL, by0 = (0 - vy0) * CELL;
-      const bx1 = (mapSize - vx0) * CELL, by1 = (mapSize - vy0) * CELL;
+      // 边界墙：只画当前视口能看到的边，避免每帧绘制 26000px 级巨型发光矩形。
       ctx.save();
-      ctx.shadowColor = "#ff4444"; ctx.shadowBlur = 18;
-      ctx.strokeStyle = "#ff4444"; ctx.lineWidth = 5;
-      ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
-      ctx.shadowBlur = 8;
-      ctx.strokeStyle = "rgba(255,100,100,0.5)"; ctx.lineWidth = 10;
-      ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
+      ctx.strokeStyle = "#ff4444";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      const leftEdge = (0 - vx0) * CELL;
+      const rightEdge = (mapSize - vx0) * CELL;
+      const topEdge = (0 - vy0) * CELL;
+      const bottomEdge = (mapSize - vy0) * CELL;
+      if (leftEdge >= -16 && leftEdge <= W + 16) { ctx.moveTo(leftEdge, 0); ctx.lineTo(leftEdge, H); }
+      if (rightEdge >= -16 && rightEdge <= W + 16) { ctx.moveTo(rightEdge, 0); ctx.lineTo(rightEdge, H); }
+      if (topEdge >= -16 && topEdge <= H + 16) { ctx.moveTo(0, topEdge); ctx.lineTo(W, topEdge); }
+      if (bottomEdge >= -16 && bottomEdge <= H + 16) { ctx.moveTo(0, bottomEdge); ctx.lineTo(W, bottomEdge); }
+      ctx.stroke();
       ctx.restore();
 
       // ── 食物 ────────────────────────────────────────────────────────────
@@ -199,7 +226,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         const phase = (food.x * 12.9898 + food.y * 78.233) % (Math.PI * 2);
         const tSec = now / 1000;
 
-        if (tier === 1) {
+        if (tier === 1 && !lowDetail) {
           const scale = 1.12 + Math.sin(tSec * 3 + phase) * 0.12;
           const bob = Math.sin(tSec * 2.2 + phase) * 2.5;
           const sprite = getSprite(glyph, "#ffd700", CELL);
@@ -208,7 +235,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
           ctx.scale(scale, scale);
           ctx.drawImage(sprite, -CELL, -CELL, CELL * 2, CELL * 2);
           ctx.restore();
-        } else {
+        } else if (!lowDetail) {
           // tier 2 高级：旋转 + 脉冲光环（arc+stroke，廉价）
           const rot = (tSec * 1.6 + phase) % (Math.PI * 2);
           const pulse = 0.5 + Math.sin(tSec * 4 + phase) * 0.5;
@@ -223,6 +250,9 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
           ctx.rotate(rot);
           ctx.drawImage(sprite, -(CELL + 2), -(CELL + 2), (CELL + 2) * 2, (CELL + 2) * 2);
           ctx.restore();
+        } else {
+          const sprite = getSprite(glyph, tier === 1 ? "#ffd700" : "#00f5ff", CELL);
+          ctx.drawImage(sprite, px - CELL, py - CELL, CELL * 2, CELL * 2);
         }
       }
 
@@ -236,29 +266,32 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         const isMe = snake.id === playerId;
 
         // 计算视口内节点（内联插值，不产生整条蛇的新数组）
-        visibleSegs.length = 0;
+        let visibleCount = 0;
         for (let i = 0; i < snake.body.length; i++) {
-          const [wx, wy] = lerpSeg(snake.id, i, snake.body[i]);
+          lerpSeg(snake.id, i, snake.body[i], tmpPoint);
+          const wx = tmpPoint.x;
+          const wy = tmpPoint.y;
           if (wx < vx0 - PAD || wx > vxMax + PAD || wy < vy0 - PAD || wy > vyMax + PAD) continue;
-          const slot = visibleSegs[visibleSegs.length] ?? (visibleSegs[visibleSegs.length] = { i: 0, sx: 0, sy: 0 });
+          const slot = visibleSegs[visibleCount] ?? (visibleSegs[visibleCount] = { i: 0, sx: 0, sy: 0 });
           slot.i = i;
           slot.sx = (wx - vx0) * CELL;
           slot.sy = (wy - vy0) * CELL;
+          visibleCount++;
         }
         // 远处蛇服务端仅发头（bodyHead=true），视口外直接 continue
-        if (!visibleSegs.length) continue;
+        if (!visibleCount) continue;
 
         ctx.save();
 
         // 1. 管状身体
-        if (skin.glow && isMe) { ctx.shadowColor = skin.glow; ctx.shadowBlur = 18; }
+        if (!lowDetail && skin.glow && isMe) { ctx.shadowColor = skin.glow; ctx.shadowBlur = 18; }
         ctx.beginPath();
         ctx.lineWidth = R * 2 - 1;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.strokeStyle = skin.body[0];
         let drawing = false;
-        for (let vi = 0; vi < visibleSegs.length; vi++) {
+        for (let vi = 0; vi < visibleCount; vi++) {
           const { i, sx, sy } = visibleSegs[vi];
           const pcx = sx + R, pcy = sy + R;
           if (!drawing || (vi > 0 && i !== visibleSegs[vi - 1].i + 1)) {
@@ -271,19 +304,32 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
         // 2. 彩色节点覆盖
         ctx.shadowBlur = 0;
-        for (const { i, sx, sy } of visibleSegs) {
-          if (i === 0) continue;
-          ctx.fillStyle = skin.body[i % skin.body.length];
-          ctx.beginPath();
-          ctx.arc(sx + R, sy + R, R - 0.5, 0, Math.PI * 2);
-          ctx.fill();
+        if (!lowDetail || isMe) {
+          for (let vi = 0; vi < visibleCount; vi++) {
+            const { i, sx, sy } = visibleSegs[vi];
+            if (i === 0) continue;
+            ctx.fillStyle = skin.body[i % skin.body.length];
+            ctx.beginPath();
+            ctx.arc(sx + R, sy + R, R - 0.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
 
         // 3. 蛇头
-        const headSeg = visibleSegs[0]?.i === 0 ? visibleSegs[0] : visibleSegs.find(({ i }) => i === 0);
+        let headSeg: VisibleSeg | undefined;
+        if (visibleSegs[0]?.i === 0) {
+          headSeg = visibleSegs[0];
+        } else {
+          for (let vi = 0; vi < visibleCount; vi++) {
+            if (visibleSegs[vi].i === 0) {
+              headSeg = visibleSegs[vi];
+              break;
+            }
+          }
+        }
         if (headSeg) {
           const hcx = headSeg.sx + R, hcy = headSeg.sy + R;
-          if (skin.glow) { ctx.shadowColor = skin.glow; ctx.shadowBlur = isMe ? 24 : 14; }
+          if (!lowDetail && skin.glow) { ctx.shadowColor = skin.glow; ctx.shadowBlur = isMe ? 24 : 14; }
           ctx.fillStyle = lighten(skin.head, 0.25);
           ctx.beginPath();
           ctx.arc(hcx, hcy, HR, 0, Math.PI * 2);
@@ -292,7 +338,7 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
           const angle = (snake.angle * Math.PI) / 180;
           const ex = Math.cos(angle) * R * 0.45, ey = Math.sin(angle) * R * 0.45;
           const ep = Math.cos(angle + Math.PI / 2) * R * 0.35, eq = Math.sin(angle + Math.PI / 2) * R * 0.35;
-          for (const side of [1, -1] as const) {
+          for (const side of EYE_SIDES) {
             ctx.fillStyle = "#fff";
             ctx.beginPath();
             ctx.arc(hcx + ex + ep * side, hcy + ey + eq * side, 3.5, 0, Math.PI * 2);
@@ -307,9 +353,9 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
         // 用户名
         const h0 = snake.body[0];
-        if (h0.x >= vx0 - PAD && h0.x <= vxMax + PAD) {
-          const [hwx, hwy] = lerpSeg(snake.id, 0, h0);
-          const nhx = (hwx - vx0) * CELL, nhy = (hwy - vy0) * CELL;
+        if ((!lowDetail || isMe) && h0.x >= vx0 - PAD && h0.x <= vxMax + PAD) {
+          lerpSeg(snake.id, 0, h0, tmpPoint);
+          const nhx = (tmpPoint.x - vx0) * CELL, nhy = (tmpPoint.y - vy0) * CELL;
           ctx.shadowColor = skin.glow ?? "transparent";
           ctx.shadowBlur = 5;
           ctx.fillStyle = isMe ? "#fff" : "rgba(255,255,255,0.75)";
@@ -323,7 +369,9 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
 
       // 边界警示（廉价渐变，无 shadowBlur）
       if (me?.alive && me.body.length) {
-        const [hx, hy] = lerpSeg(me.id, 0, me.body[0]);
+        lerpSeg(me.id, 0, me.body[0], tmpPoint);
+        const hx = tmpPoint.x;
+        const hy = tmpPoint.y;
         const WARN = 50;
         const alpha = (dist: number) => Math.max(0, Math.min(0.6, 1 - dist / WARN)) * 0.6;
         const drawWarn = (grad: CanvasGradient, a: number) => {
@@ -337,6 +385,10 @@ export function GameCanvas({ bufferRef, tickMsRef, mapSize, playerId }: Props) {
         if (hx > mapSize - WARN) drawWarn(ctx.createLinearGradient(W, 0, W * 0.7, 0), alpha(mapSize - hx));
         if (hy < WARN) drawWarn(ctx.createLinearGradient(0, 0, 0, H * 0.3), alpha(hy));
         if (hy > mapSize - WARN) drawWarn(ctx.createLinearGradient(0, H, 0, H * 0.7), alpha(mapSize - hy));
+      }
+
+      if (!lowDetail && performance.now() - frameStart > FRAME_BUDGET_MS) {
+        lowDetailUntil = performance.now() + LOW_DETAIL_MS;
       }
     }; // end frame
 
