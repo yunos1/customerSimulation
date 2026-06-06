@@ -1,5 +1,6 @@
-// 游戏 HUD：左上角排行榜 + 自己的分数 + 复活倒计时 + 击杀播报
+// 游戏 HUD：排行榜（首屏5条，滚动看50）+ 分数 + 复活倒计时 + buff状态条 + 击杀播报
 import { useEffect, useRef, useState } from "react";
+import { SKILL_BY_KEY } from "./skins";
 import type { GameSnapshot, LeaderEntry } from "./useSnakeGame";
 
 interface Props {
@@ -11,11 +12,11 @@ interface Props {
 export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
   const [kills, setKills] = useState<string[]>([]);
   const prevKillsRef = useRef(0);
+  const leaderScrollRef = useRef<HTMLDivElement>(null);
 
   const me = snapshot?.snakes.find((s) => s.id === playerId);
   const leaderboard: LeaderEntry[] = snapshot?.leaderboard ?? [];
 
-  // 检测击杀数增加，弹出通知
   useEffect(() => {
     if (!me) return;
     if (me.kills > prevKillsRef.current) {
@@ -25,9 +26,24 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
     prevKillsRef.current = me.kills;
   }, [me?.kills]);
 
+  // 自己上榜时滚动到可见
+  useEffect(() => {
+    const idx = leaderboard.findIndex((e) => e.id === playerId);
+    if (idx < 0 || !leaderScrollRef.current) return;
+    const children = leaderScrollRef.current.children;
+    if (children[idx]) (children[idx] as HTMLElement).scrollIntoView({ block: "nearest" });
+  }, [leaderboard, playerId]);
+
   const respawnIn = me && !me.alive && me.respawnAt
     ? Math.max(0, Math.ceil((me.respawnAt - Date.now()) / 1000))
     : null;
+
+  // 当前生效 buff（服务端传来的到期时间戳，客户端只显示剩余秒）
+  const effects = me?.effects ?? {};
+  const now = Date.now();
+  const activeBuffs = (Object.keys(effects) as (keyof typeof effects)[])
+    .map((k) => ({ key: k, remaining: Math.max(0, Math.ceil(((effects[k] ?? 0) - now) / 1000)) }))
+    .filter((b) => b.remaining > 0);
 
   return (
     <>
@@ -43,31 +59,35 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
         >
           ← 返回
         </button>
-        <span style={{ color: "#fff", fontWeight: "bold", fontSize: 15 }}>
-          🐍 摸鱼时刻 · 多人贪吃蛇
-        </span>
+        <span style={{ color: "#fff", fontWeight: "bold", fontSize: 15 }}>🐍 摸鱼时刻 · 多人贪吃蛇</span>
         <span style={{ color: "#7cf", fontSize: 13 }}>
-          在线 {snapshot?.snakes.filter((s) => s.alive).length ?? 0} 人
+          在线 {snapshot?.snakes.filter((s) => s.alive && !s.isBot).length ?? 0} 人
         </span>
       </div>
 
-      {/* 左上角排行榜 */}
+      {/* 排行榜：固定高度约5条，可滚动到50 */}
       <div style={{
         position: "absolute", top: 48, left: 12,
         background: "rgba(0,0,0,0.65)", borderRadius: 8, padding: "8px 12px",
-        minWidth: 160, maxHeight: 220, overflowY: "auto", pointerEvents: "none",
+        minWidth: 160, pointerEvents: "auto",
       }}>
         <div style={{ color: "#ffd700", fontSize: 12, marginBottom: 6, fontWeight: "bold" }}>🏆 排行榜</div>
-        {leaderboard.map((entry, i) => (
-          <div key={entry.id} style={{
-            display: "flex", justifyContent: "space-between", gap: 12,
-            color: entry.id === playerId ? "#00f5ff" : "#ddd",
-            fontSize: 12, marginBottom: 3, fontWeight: entry.id === playerId ? "bold" : "normal",
-          }}>
-            <span>{i + 1}. {entry.username.slice(0, 8)}</span>
-            <span>{entry.score}分</span>
-          </div>
-        ))}
+        <div
+          ref={leaderScrollRef}
+          style={{ maxHeight: 112, overflowY: "auto", scrollbarWidth: "thin" }}
+        >
+          {leaderboard.map((entry, i) => (
+            <div key={entry.id} style={{
+              display: "flex", justifyContent: "space-between", gap: 12,
+              color: entry.id === playerId ? "#00f5ff" : entry.isBot ? "#888" : "#ddd",
+              fontSize: 12, marginBottom: 3,
+              fontWeight: entry.id === playerId ? "bold" : "normal",
+            }}>
+              <span>{i + 1}. {entry.isBot ? "🤖" : ""}{entry.username.slice(0, 8)}</span>
+              <span>{entry.score}分</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* 右上角自己的分数 */}
@@ -80,6 +100,30 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
         <div style={{ color: "#00f5ff", fontSize: 22, fontWeight: "bold" }}>{me?.score ?? 0}</div>
         <div style={{ color: "#f87", fontSize: 11 }}>💀 {me?.kills ?? 0} 杀</div>
       </div>
+
+      {/* buff 状态条（右上角分数下方） */}
+      {activeBuffs.length > 0 && (
+        <div style={{
+          position: "absolute", top: 130, right: 12,
+          display: "flex", flexDirection: "column", gap: 4, pointerEvents: "none",
+        }}>
+          {activeBuffs.map((b) => {
+            const sk = SKILL_BY_KEY[b.key];
+            if (!sk) return null;
+            return (
+              <div key={b.key} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "rgba(0,0,0,0.7)", borderRadius: 6, padding: "3px 8px",
+                border: `1px solid ${sk.color}55`, fontSize: 12,
+              }}>
+                <span>{sk.emoji}</span>
+                <span style={{ color: sk.color }}>{sk.label}</span>
+                <span style={{ color: "#fff", fontWeight: "bold" }}>{b.remaining}s</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* 复活倒计时 */}
       {respawnIn !== null && (
@@ -104,7 +148,6 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
           <div key={i} style={{
             background: "rgba(255,100,50,0.85)", color: "#fff", padding: "4px 14px",
             borderRadius: 20, fontSize: 13, fontWeight: "bold",
-            animation: "fadeIn 0.3s ease",
           }}>
             ⚔️ {msg}
           </div>
@@ -116,7 +159,7 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
         position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
         color: "rgba(255,255,255,0.4)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap",
       }}>
-        键盘 WASD/方向键 控制 · 移动端滑动控制 · 空格加速
+        键盘 WASD/方向键 控制 · 移动端滑动控制
       </div>
     </>
   );

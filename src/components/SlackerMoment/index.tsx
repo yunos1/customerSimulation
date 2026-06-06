@@ -1,5 +1,5 @@
 // 摸鱼时刻：排行榜展示 + 进入游戏
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SnakeGame } from "../SnakeGame";
 import type { AuthUser } from "../../hooks/useAuth";
 
@@ -32,13 +32,37 @@ export function SlackerMoment({ user, onBackToHub }: Props) {
     if (playing) return;
     fetch("/api/snake/leaderboard")
       .then((r) => r.json() as Promise<{ leaderboard?: ScoreEntry[] }>)
-      .then((d) => setBoard((d.leaderboard ?? []).slice(0, 20)));
+      .then((d) => setBoard((d.leaderboard ?? []).slice(0, 50)));
   }, [playing]);
+
+  const enterGame = useCallback(async () => {
+    setPlaying(true);
+    try {
+      const el = document.documentElement;
+      // requestFullscreen 含各厂商前缀回退
+      const req = el.requestFullscreen?.bind(el)
+        ?? (el as Element & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen?.bind(el);
+      if (req) await req();
+    } catch { /* 用户拒绝或 iOS Safari 不支持，忽略 */ }
+  }, []);
+
+  const exitGame = useCallback(async () => {
+    setPlaying(false);
+    try {
+      const exit = document.exitFullscreen?.bind(document)
+        ?? (document as Document & { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen?.bind(document);
+      if (exit && document.fullscreenElement) await exit();
+    } catch { /* ignore */ }
+  }, []);
 
   if (playing) {
     return (
-      <div style={{ width: "100vw", height: "100vh", position: "fixed", inset: 0, zIndex: 100 }}>
-        <SnakeGame token={token} onBackToHub={() => setPlaying(false)} />
+      // iOS Safari 不支持 Fullscreen API，用 100dvh + overscroll:none 模拟全屏
+      <div style={{
+        width: "100vw", height: "100dvh", position: "fixed", inset: 0, zIndex: 100,
+        overscrollBehavior: "none",
+      }}>
+        <SnakeGame token={token} onBackToHub={exitGame} />
       </div>
     );
   }
@@ -53,7 +77,7 @@ export function SlackerMoment({ user, onBackToHub }: Props) {
       <p style={{ color: "#aaa", marginBottom: 32 }}>在线多人贪吃蛇 · 1000×1000 超大地图</p>
 
       <button
-        onClick={() => setPlaying(true)}
+        onClick={enterGame}
         style={{
           background: "linear-gradient(135deg,#00f5ff,#7b2fff)",
           color: "#fff", border: "none", padding: "14px 48px",

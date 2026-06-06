@@ -2,13 +2,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface Vec2 { x: number; y: number }
+// 生效中的 buff -> 到期时间戳（服务端 Date.now() 基准）。仅含尚未到期的。
+export interface SnakeEffects {
+  boost?: number; slow?: number; shield?: number;
+  magnet?: number; double?: number; ghost?: number;
+}
 export interface SnakeInfo {
   id: string; username: string; avatarUrl: string | null;
   skinId: number; body: Vec2[]; angle: number;
   alive: boolean; score: number; kills: number; respawnAt: number;
+  // 远处蛇为节省带宽只发蛇头：bodyHead=true 表示 body 仅含头部一节
+  bodyHead?: boolean;
+  effects?: SnakeEffects;
+  isBot?: boolean;
 }
-export interface FoodInfo { x: number; y: number; type: number; value: number; tier: number }
-export interface LeaderEntry { id: string; username: string; score: number; kills: number }
+// skill: 技能类型标识（见 skins.ts SKILL_FOODS）；普通食物无此字段
+export interface FoodInfo { x: number; y: number; type: number; value: number; tier: number; skill?: string }
+export interface LeaderEntry { id: string; username: string; score: number; kills: number; isBot?: boolean }
 
 export interface GameSnapshot {
   tick: number;
@@ -16,16 +26,19 @@ export interface GameSnapshot {
   snakes: SnakeInfo[];
   foods: FoodInfo[];
   leaderboard: LeaderEntry[];
+  // 客户端记录的本地到达时间（performance.now()），供 render-behind 插值
+  arrivedAt?: number;
 }
 
+// render-behind 缓冲保留最近 N 帧，渲染时刻回退 ~1.5 tick，永远落在两帧之间插值
+const BUFFER_SIZE = 6;
+
 export function useSnakeGame(token: string | null) {
-  // snapshotRef 供 GameCanvas rAF 循环读取（无 React 重渲染开销）
-  // snapshot state 供 HUD / MiniMap（100ms 频率，可接受）
-  const snapshotRef = useRef<GameSnapshot | null>(null);
-  // 上一帧快照 + 到达时间，供 GameCanvas 插值（平滑 tick 之间的移动）
-  const prevSnapshotRef = useRef<GameSnapshot | null>(null);
-  const snapshotTimeRef = useRef<number>(0);
+  // bufferRef：最近若干帧快照（按到达顺序，末尾最新），供 GameCanvas 渲染回放。
+  // 直接读 ref，不触发 React 重渲染。
+  const bufferRef = useRef<GameSnapshot[]>([]);
   const tickMsRef = useRef<number>(200);
+  const lastArriveRef = useRef<number>(0);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [mapSize, setMapSize] = useState(1000);
@@ -48,20 +61,21 @@ export function useSnakeGame(token: string | null) {
         if (typeof msg.tickMs === "number") tickMsRef.current = msg.tickMs;
       } else if (msg.type === "state") {
         const now = performance.now();
-        // 实测两次快照间隔，EMA 平滑后作为插值时长。
-        // 网络/tick 抖动会让快照晚到，写死 200ms 会令蛇「插完冻一下再跳」；
-        // 用实测间隔（略放大）让插值铺满真实到达节奏，移动顺滑。
-        const last = snapshotTimeRef.current;
+        // 实测两次快照间隔，EMA 平滑后作为插值时长，吸收网络/tick 抖动。
+        const last = lastArriveRef.current;
         if (last) {
           const gap = now - last;
           if (gap > 30 && gap < 1000) {
             tickMsRef.current = tickMsRef.current * 0.7 + gap * 0.3;
           }
         }
-        prevSnapshotRef.current = snapshotRef.current;
-        snapshotRef.current = msg as GameSnapshot;
-        snapshotTimeRef.current = now;
-        setSnapshot(msg as GameSnapshot);
+        lastArriveRef.current = now;
+        const snap = msg as GameSnapshot;
+        snap.arrivedAt = now;
+        const buf = bufferRef.current;
+        buf.push(snap);
+        if (buf.length > BUFFER_SIZE) buf.shift();
+        setSnapshot(snap);
       }
     };
 
@@ -78,7 +92,7 @@ export function useSnakeGame(token: string | null) {
   }, []);
 
   return {
-    snapshot, snapshotRef, prevSnapshotRef, snapshotTimeRef, tickMsRef,
+    snapshot, bufferRef, tickMsRef,
     connected, mapSize, playerId: playerIdRef.current, steer, leave,
   };
 }

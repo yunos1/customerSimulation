@@ -9,56 +9,89 @@ export interface Env {
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
-const MAP_SIZE = 1000;          // 地图格子数
-const CELL_SIZE = 20;           // px（客户端用）
-const TICK_MS = 200;            // 服务端 tick 间隔（更慢，客户端插值保证顺滑）
-const FOOD_TARGET = 5000;       // 目标食物数量
-const INIT_LENGTH = 5;          // 初始蛇长
-const RESPAWN_MS = 5000;        // 死亡后复活等待
+const MAP_SIZE = 1000;
+const CELL_SIZE = 20;
+const TICK_MS = 200;
+const FOOD_TARGET = 5000;
+const INIT_LENGTH = 5;
+const RESPAWN_MS = 5000;
 const MAX_PLAYERS = 50;
-const BORDER_WARN = 50;         // 距边界多少格开始警告
-const SAVE_INTERVAL_TICKS = 50; // 每多少 tick 保存一次存活玩家分数（约 10s）
-const FOOD_BUCKET = 25;         // 食物空间网格 bucket 边长（格），用于邻近查询
+const SAVE_INTERVAL_TICKS = 50;
+const FOOD_BUCKET = 25;
+// 近距离蛇发完整 body，远处蛇只发头（小地图够用），减少序列化开销
+const FULL_BODY_RADIUS = 80; // 世界格数
+// AI bot 常驻数量
+const BOT_TARGET = 10;
+const BOT_NAMES = ["小红","小蓝","老王","阿强","小花","大壮","小鹿","阿宝","老虎","小鱼"];
 
-// ── 食物分层（须与客户端 skins.ts 的 type 偏移一致）──────────────────────────
-// tier 0 基础: type 0-13 (14)  | tier 1 中级: type 14-19 (6) | tier 2 高级: type 20-25 (6)
+// ── 食物分层 ──────────────────────────────────────────────────────────────────
+// tier 0 基础, tier 1 中级, tier 2 高级（含技能食物，但技能单独控制权重）
 const FOOD_TIERS = [
-  { offset: 0,  count: 14, values: [1, 1, 1, 2, 2],  weight: 82 }, // 基础
-  { offset: 14, count: 6,  values: [3, 4, 5],         weight: 14 }, // 中级
-  { offset: 20, count: 6,  values: [8, 10, 15],       weight: 4  }, // 高级
+  { offset: 0,  count: 14, values: [1, 1, 1, 2, 2], weight: 78 }, // 基础
+  { offset: 14, count: 6,  values: [3, 4, 5],        weight: 14 }, // 中级
+  { offset: 20, count: 6,  values: [8, 10, 15],       weight: 4  }, // 高级（非技能）
 ];
 const FOOD_WEIGHT_TOTAL = FOOD_TIERS.reduce((s, t) => s + t.weight, 0);
+
+// 技能食物（server key 须与 skins.ts SKILL_FOODS[].key 一致）
+const SKILLS: Array<{ key: string; weight: number; value: number; instant: boolean }> = [
+  { key: "boost",  weight: 18, value: 0,  instant: false },
+  { key: "slow",   weight: 16, value: 0,  instant: false },
+  { key: "shield", weight: 12, value: 0,  instant: false },
+  { key: "ghost",  weight: 10, value: 0,  instant: false },
+  { key: "magnet", weight: 10, value: 0,  instant: false },
+  { key: "double", weight: 12, value: 0,  instant: false },
+  { key: "thorn",  weight: 10, value: -5, instant: true  }, // 扣分
+  { key: "mine",   weight:  4, value: 0,  instant: true  }, // 致命（少）
+];
+const SKILL_WEIGHT_TOTAL = SKILLS.reduce((s, k) => s + k.weight, 0);
+// 技能食物在全部食物抽取中的占比权重
+const SKILL_POOL_WEIGHT = 4;
+const TOTAL_POOL = FOOD_WEIGHT_TOTAL + SKILL_POOL_WEIGHT;
+
+// buff 持续时长（ms）
+const EFFECT_DUR: Record<string, number> = {
+  boost: 10000, slow: 5000, shield: 6000, ghost: 6000, magnet: 8000, double: 8000,
+};
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
 type Vec2 = { x: number; y: number };
 
+interface SnakeEffects {
+  boost?: number; slow?: number; shield?: number;
+  magnet?: number; double?: number; ghost?: number;
+}
+
 interface Snake {
-  id: string;           // player id
+  id: string;
   username: string;
   avatarUrl: string | null;
-  skinId: number;       // 0-9
-  body: Vec2[];         // body[0] = 头
-  angle: number;        // 0-360 当前移动角度
+  skinId: number;
+  body: Vec2[];
+  angle: number;
   alive: boolean;
   score: number;
   kills: number;
-  respawnAt: number;    // timestamp, 0 = 已存活
+  respawnAt: number;
   joinedAt: number;
+  isBot: boolean;
+  effects: SnakeEffects;
+  stepAccum: number; // 变速累加器（≥1 才真正移动一格）
 }
 
 interface Food {
   x: number;
   y: number;
-  type: number; // 0-25，全局 emoji 索引
+  type: number;
   value: number;
-  tier: number; // 0 基础 / 1 中级 / 2 高级，客户端据此渲染动效
+  tier: number;
+  skill?: string; // 技能 key，普通食物无此字段
 }
 
 interface GameState {
   snakes: Map<string, Snake>;
-  foods: Map<string, Food>;   // key = `${x},${y}`
-  // 空间网格索引：bucketKey -> 该 bucket 内的食物 key 集合，用于邻近查询
+  foods: Map<string, Food>;
   foodGrid: Map<string, Set<string>>;
   tick: number;
 }
@@ -82,7 +115,6 @@ export class SnakeRoom {
       return new Response("Expected WebSocket", { status: 426 });
     }
 
-    // 解析 token（query 参数优先，其次 cookie session）
     const url = new URL(request.url);
     const qToken = url.searchParams.get("token");
     const cookieToken = this.getCookieToken(request);
@@ -90,7 +122,6 @@ export class SnakeRoom {
       : cookieToken ? await this.verifyToken(cookieToken)
       : null;
 
-    // 游客：用随机 id
     const id = (payload?.sub as string) ?? `guest_${crypto.randomUUID().slice(0, 8)}`;
     const username = (payload?.username as string) ?? `游客${id.slice(-4)}`;
     const avatarUrl = (payload?.avatar_url as string) ?? null;
@@ -103,12 +134,10 @@ export class SnakeRoom {
     server.accept();
 
     this.clients.set(id, server);
-    // 重连时保留已有蛇（分数不重置）
     if (!this.game.snakes.has(id)) {
-      this.spawnSnake(id, username, avatarUrl);
+      this.spawnSnake(id, username, avatarUrl, false);
     }
 
-    // 发送初始状态
     this.sendTo(id, { type: "init", mapSize: MAP_SIZE, cellSize: CELL_SIZE, tickMs: TICK_MS, playerId: id });
     this.sendGameState(id);
 
@@ -120,8 +149,7 @@ export class SnakeRoom {
     server.addEventListener("close", () => {
       this.clients.delete(id);
       const snake = this.game.snakes.get(id);
-      // 离开时保存分数（存活的蛇 killSnake 未触发过 saveScore）
-      if (snake && snake.alive) void this.saveScore(snake);
+      if (snake && snake.alive && !snake.isBot) void this.saveScore(snake);
       this.game.snakes.delete(id);
       if (this.clients.size === 0) this.stopTick();
     });
@@ -145,6 +173,9 @@ export class SnakeRoom {
     const now = Date.now();
     this.game.tick++;
 
+    // 补充/维持 bot
+    this.maintainBots();
+
     // 复活检查
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive && snake.respawnAt && now >= snake.respawnAt) {
@@ -152,60 +183,67 @@ export class SnakeRoom {
       }
     }
 
-    // 移动所有存活蛇
-    const deaths: Array<{ killer: string; victim: string }> = [];
+    // 移动
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
-      this.moveSnake(snake);
+      if (snake.isBot) this.botSteer(snake);
+      this.moveSnake(snake, now);
     }
 
     // 碰撞检测（头碰他人蛇身）
+    const deaths: Array<{ killer: string; victim: string }> = [];
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
+      // 护盾/幽灵免疫碰撞（幽灵：穿过他人身体；护盾：护住自己不被其他头击杀）
+      const hasGhost = now < (snake.effects.ghost ?? 0);
+      if (hasGhost) continue;
       const head = snake.body[0];
-
       for (const other of this.game.snakes.values()) {
         if (other.id === snake.id || !other.alive) continue;
-        // 从 index 1 开始（头到头不算，平等碰撞时都死）
         for (let i = 0; i < other.body.length; i++) {
           const seg = other.body[i];
           if (Math.hypot(seg.x - head.x, seg.y - head.y) < 0.8) {
-            deaths.push({ killer: other.id, victim: snake.id });
+            // 护盾：被撞身体的蛇有护盾，则不死（反伤无，仅豁免）
+            const hasShield = now < (snake.effects.shield ?? 0);
+            if (!hasShield) deaths.push({ killer: other.id, victim: snake.id });
             break;
           }
         }
       }
     }
 
-    // 处理死亡
     const died = new Set<string>();
     for (const { killer, victim } of deaths) {
       if (died.has(victim)) continue;
       died.add(victim);
       const victimSnake = this.game.snakes.get(victim)!;
       const killerSnake = this.game.snakes.get(killer);
-      if (killerSnake) killerSnake.kills++;
+      if (killerSnake && !killerSnake.isBot) killerSnake.kills++;
       this.killSnake(victimSnake);
     }
 
-    // 吃食物（食物均在整数格，仅查头部周围 ±1 格，O(1) 而非全量遍历）
+    // 吃食物
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
       const head = snake.body[0];
       const minX = Math.floor(head.x - 0.8), maxX = Math.ceil(head.x + 0.8);
       const minY = Math.floor(head.y - 0.8), maxY = Math.ceil(head.y + 0.8);
       let eaten = false;
-      for (let gx = minX; gx <= maxX && !eaten; gx++) {
+      outer: for (let gx = minX; gx <= maxX; gx++) {
         for (let gy = minY; gy <= maxY; gy++) {
           const key = `${gx},${gy}`;
           const food = this.game.foods.get(key);
           if (food && Math.hypot(food.x - head.x, food.y - head.y) < 0.8) {
-            snake.score += food.value;
-            this.removeFood(key);
-            snake.body.push({ ...snake.body[snake.body.length - 1] });
+            this.applyFood(snake, food, key, now);
             eaten = true;
-            break;
+            break outer;
           }
+        }
+      }
+      if (!eaten) {
+        // 磁铁：自动吸附附近食物（每 tick 朝头移动）
+        if (now < (snake.effects.magnet ?? 0)) {
+          this.magnetPull(snake);
         }
       }
     }
@@ -217,73 +255,190 @@ export class SnakeRoom {
       for (let i = 0; i < batch; i++) this.spawnFood();
     }
 
-    // 广播差量（排行榜只算一次）
+    // 广播
     const leaderboard = Array.from(this.game.snakes.values())
       .filter((s) => s.alive)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-      .map((s) => ({ id: s.id, username: s.username, score: s.score, kills: s.kills }));
-    this.broadcastDelta(leaderboard);
+      .slice(0, 50)
+      .map((s) => ({ id: s.id, username: s.username, score: s.score, kills: s.kills, isBot: s.isBot }));
+    this.broadcastDelta(leaderboard, now);
 
-    // 定时保存存活玩家分数（每约 10s），即使未死亡也入库 / 更新排行榜
     if (this.game.tick % SAVE_INTERVAL_TICKS === 0) {
       for (const snake of this.game.snakes.values()) {
-        if (snake.alive) void this.saveScore(snake);
+        if (snake.alive && !snake.isBot) void this.saveScore(snake);
       }
     }
   }
 
-  private moveSnake(snake: Snake) {
-    const rad = (snake.angle * Math.PI) / 180;
-    const head = snake.body[0];
-    const nx = head.x + Math.cos(rad);
-    const ny = head.y + Math.sin(rad);
+  // ── 变速移动（步进累加器）──────────────────────────────────────────────────
+  // speedMul=2 每 tick 移动 2 格，=0.5 每 2 tick 移动 1 格，平滑兼容整格移动
 
-    // 碰墙死亡
-    if (nx < 0 || nx >= MAP_SIZE || ny < 0 || ny >= MAP_SIZE) {
-      this.killSnake(snake);
+  private moveSnake(snake: Snake, now: number) {
+    let speedMul = 1;
+    if (now < (snake.effects.boost ?? 0)) speedMul = 2;
+    else if (now < (snake.effects.slow ?? 0)) speedMul = 0.5;
+
+    snake.stepAccum += speedMul;
+    while (snake.stepAccum >= 1) {
+      snake.stepAccum -= 1;
+      const rad = (snake.angle * Math.PI) / 180;
+      const head = snake.body[0];
+      const nx = head.x + Math.cos(rad);
+      const ny = head.y + Math.sin(rad);
+      if (nx < 0 || nx >= MAP_SIZE || ny < 0 || ny >= MAP_SIZE) {
+        this.killSnake(snake);
+        return;
+      }
+      snake.body.unshift({ x: nx, y: ny });
+      snake.body.pop();
+    }
+  }
+
+  // ── 技能食物处理 ────────────────────────────────────────────────────────────
+
+  private applyFood(snake: Snake, food: Food, key: string, now: number) {
+    const sk = food.skill;
+    this.removeFood(key);
+
+    if (!sk) {
+      // 普通食物
+      const mul = now < (snake.effects.double ?? 0) ? 2 : 1;
+      snake.score += food.value * mul;
+      snake.body.push({ ...snake.body[snake.body.length - 1] });
       return;
     }
 
-    snake.body.unshift({ x: nx, y: ny });
-    snake.body.pop();
+    switch (sk) {
+      case "mine":
+        if (now < (snake.effects.shield ?? 0)) {
+          // 护盾抵挡地雷，护盾消耗
+          snake.effects.shield = 0;
+        } else {
+          this.killSnake(snake);
+        }
+        break;
+      case "thorn": {
+        // 荆棘扣分，并截短蛇（弹出尾节）
+        const penalty = Math.abs(SKILLS.find((s) => s.key === "thorn")!.value);
+        snake.score = Math.max(0, snake.score - penalty);
+        if (snake.body.length > INIT_LENGTH) snake.body.pop();
+        break;
+      }
+      case "boost":
+      case "slow":
+      case "shield":
+      case "ghost":
+      case "magnet":
+      case "double":
+        snake.effects[sk] = now + EFFECT_DUR[sk];
+        snake.body.push({ ...snake.body[snake.body.length - 1] });
+        break;
+    }
+  }
+
+  // ── 磁铁：把附近食物"吸"近 ────────────────────────────────────────────────
+
+  private magnetPull(snake: Snake) {
+    const head = snake.body[0];
+    const R = 12; // 磁铁吸附半径（格）
+    const nearby = this.foodsInRange(head.x, head.y, R);
+    for (const food of nearby.slice(0, 5)) {
+      const dx = head.x - food.x, dy = head.y - food.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.8) {
+        // 到达头部，吃掉
+        const key = `${Math.round(food.x)},${Math.round(food.y)}`;
+        this.applyFood(snake, food, key, Date.now());
+        continue;
+      }
+      // 向头移动一格
+      const step = Math.min(1, dist);
+      const nx = Math.round(food.x + (dx / dist) * step);
+      const ny = Math.round(food.y + (dy / dist) * step);
+      const oldKey = `${Math.round(food.x)},${Math.round(food.y)}`;
+      const newKey = `${nx},${ny}`;
+      if (oldKey !== newKey && !this.game.foods.has(newKey)) {
+        this.removeFood(oldKey);
+        this.addFood(nx, ny, food.type, food.value, food.tier, food.skill);
+      }
+    }
+  }
+
+  // ── Bot AI ──────────────────────────────────────────────────────────────────
+
+  private maintainBots() {
+    const botCount = Array.from(this.game.snakes.values()).filter((s) => s.isBot && s.alive).length;
+    const need = BOT_TARGET - botCount;
+    for (let i = 0; i < need; i++) {
+      const idx = rand(BOT_NAMES.length);
+      const botId = `bot_${crypto.randomUUID().slice(0, 6)}`;
+      this.spawnSnake(botId, BOT_NAMES[idx], null, true);
+    }
+  }
+
+  private botSteer(snake: Snake) {
+    // 每 3 tick 重新计算一次转向（节省 CPU）
+    if (this.game.tick % 3 !== 0) return;
+    const head = snake.body[0];
+
+    // 优先：逃墙
+    const WALL_DIST = 30;
+    if (head.x < WALL_DIST || head.x > MAP_SIZE - WALL_DIST ||
+        head.y < WALL_DIST || head.y > MAP_SIZE - WALL_DIST) {
+      // 转向地图中心
+      const toCenter = Math.atan2(MAP_SIZE / 2 - head.y, MAP_SIZE / 2 - head.x) * 180 / Math.PI;
+      snake.angle = ((toCenter + 360) % 360);
+      return;
+    }
+
+    // 寻找最近食物（跳过地雷）
+    const nearby = this.foodsInRange(head.x, head.y, 40);
+    const safe = nearby.filter((f) => f.skill !== "mine");
+    if (safe.length) {
+      let nearest = safe[0], minD = Infinity;
+      for (const f of safe) {
+        const d = Math.hypot(f.x - head.x, f.y - head.y);
+        if (d < minD) { minD = d; nearest = f; }
+      }
+      const angle = Math.atan2(nearest.y - head.y, nearest.x - head.x) * 180 / Math.PI;
+      snake.angle = ((angle + 360) % 360);
+    }
   }
 
   private killSnake(snake: Snake) {
     snake.alive = false;
     snake.respawnAt = Date.now() + RESPAWN_MS;
-
-    // 全身变食物（取整到格，保证 O(1) 邻近查询能命中）
     for (const seg of snake.body) {
       const x = Math.round(seg.x), y = Math.round(seg.y);
-      this.addFood(x, y, rand(14), 1, 0); // 尸体掉落基础食物（tier 0）
+      this.addFood(x, y, rand(14), 1, 0, undefined);
     }
     snake.body = [];
-
-    // 保存最高分
-    void this.saveScore(snake);
+    snake.effects = {} as SnakeEffects;
+    if (!snake.isBot) void this.saveScore(snake);
   }
 
   private respawn(snake: Snake) {
     snake.alive = true;
     snake.respawnAt = 0;
     snake.skinId = rand(10);
+    snake.stepAccum = 0;
+    snake.effects = {} as SnakeEffects;
     const pos = this.randomEmptyPos();
     snake.body = [];
     for (let i = 0; i < INIT_LENGTH; i++) snake.body.push({ x: pos.x - i, y: pos.y });
     snake.angle = 0;
   }
 
-  private spawnSnake(id: string, username: string, avatarUrl: string | null) {
+  private spawnSnake(id: string, username: string, avatarUrl: string | null, isBot: boolean) {
     const pos = this.randomEmptyPos();
     const body: Vec2[] = [];
     for (let i = 0; i < INIT_LENGTH; i++) body.push({ x: pos.x - i, y: pos.y });
     this.game.snakes.set(id, {
       id, username, avatarUrl,
-      skinId: rand(10),
-      body, angle: 0,
+      skinId: rand(10), body, angle: 0,
       alive: true, score: 0, kills: 0,
       respawnAt: 0, joinedAt: Date.now(),
+      isBot, effects: {} as SnakeEffects, stepAccum: 0,
     });
   }
 
@@ -291,21 +446,27 @@ export class SnakeRoom {
     const x = rand(MAP_SIZE);
     const y = rand(MAP_SIZE);
     if (this.game.foods.has(`${x},${y}`)) return;
-    const { type, value, tier } = rollFood();
-    this.addFood(x, y, type, value, tier);
+
+    // 技能食物 vs 普通食物抽取
+    if (rand(TOTAL_POOL) < SKILL_POOL_WEIGHT) {
+      const { key, value } = rollSkill();
+      this.addFood(x, y, 20 + rand(6), value, 2, key);
+    } else {
+      const { type, value, tier } = rollFood();
+      this.addFood(x, y, type, value, tier, undefined);
+    }
   }
 
-  // ── 食物 + 空间网格索引 ──────────────────────────────────────────────────────
-  // foods 为权威数据，foodGrid 是按 bucket 分桶的二级索引，供邻近/视口查询。
+  // ── 食物 + 空间网格 ──────────────────────────────────────────────────────────
 
   private static bucketKey(x: number, y: number): string {
     return `${Math.floor(x / FOOD_BUCKET)},${Math.floor(y / FOOD_BUCKET)}`;
   }
 
-  private addFood(x: number, y: number, type: number, value: number, tier: number) {
+  private addFood(x: number, y: number, type: number, value: number, tier: number, skill: string | undefined) {
     const key = `${x},${y}`;
     if (this.game.foods.has(key)) return;
-    this.game.foods.set(key, { x, y, type, value, tier });
+    this.game.foods.set(key, { x, y, type, value, tier, skill });
     const bk = SnakeRoom.bucketKey(x, y);
     let bucket = this.game.foodGrid.get(bk);
     if (!bucket) { bucket = new Set(); this.game.foodGrid.set(bk, bucket); }
@@ -321,7 +482,6 @@ export class SnakeRoom {
     if (bucket) { bucket.delete(key); if (bucket.size === 0) this.game.foodGrid.delete(bk); }
   }
 
-  // 查询某矩形世界范围内的食物（遍历重叠的 bucket，而非全量食物）
   private foodsInRange(cx: number, cy: number, vr: number): Food[] {
     const out: Food[] = [];
     const bx0 = Math.floor((cx - vr) / FOOD_BUCKET), bx1 = Math.floor((cx + vr) / FOOD_BUCKET);
@@ -343,8 +503,7 @@ export class SnakeRoom {
     for (let i = 0; i < 100; i++) {
       const x = rand(MAP_SIZE);
       const y = rand(MAP_SIZE);
-      const key = `${x},${y}`;
-      if (!this.game.foods.has(key)) return { x, y };
+      if (!this.game.foods.has(`${x},${y}`)) return { x, y };
     }
     return { x: rand(MAP_SIZE), y: rand(MAP_SIZE) };
   }
@@ -353,30 +512,30 @@ export class SnakeRoom {
 
   private handleMessage(id: string, msg: { type: string; angle?: number }) {
     const snake = this.game.snakes.get(id);
-    if (!snake) return;
-
-    // 主动离开：保存分数后断开（前端点击返回时发送）
+    if (!snake || snake.isBot) return;
     if (msg.type === "leave") {
       if (snake.alive) void this.saveScore(snake);
       return;
     }
-
     if (!snake.alive) return;
-
     if (msg.type === "steer" && typeof msg.angle === "number") {
-      // 限速：每 tick 最多转一次（由客户端节流，服务端直接接受角度）
       snake.angle = ((msg.angle % 360) + 360) % 360;
     }
   }
 
   // ── 广播 ────────────────────────────────────────────────────────────────────
 
-  private broadcastDelta(leaderboard: { id: string; username: string; score: number; kills: number }[]) {
-    // 所有蛇列表（tick 内只序列化一次）
-    const snakeList = Array.from(this.game.snakes.values()).map((s) => ({
+  private broadcastDelta(
+    leaderboard: { id: string; username: string; score: number; kills: number; isBot: boolean }[],
+    now: number,
+  ) {
+    // 蛇列表（一次序列化，逐客户端按视距裁剪 body）
+    const snakeInfoFull = Array.from(this.game.snakes.values()).map((s) => ({
       id: s.id, username: s.username, avatarUrl: s.avatarUrl,
       skinId: s.skinId, body: s.body, angle: s.angle,
       alive: s.alive, score: s.score, kills: s.kills, respawnAt: s.respawnAt,
+      isBot: s.isBot,
+      effects: activeEffects(s.effects, now),
     }));
 
     for (const [id] of this.clients) {
@@ -387,25 +546,29 @@ export class SnakeRoom {
       const cy = snake.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
       const vr = 60;
 
+      // 远距离蛇只发蛇头节省带宽
+      const snakes = snakeInfoFull.map((s) => {
+        if (s.id === id || !s.alive || !s.body.length) return s;
+        const dist = Math.hypot(s.body[0].x - cx, s.body[0].y - cy);
+        if (dist <= FULL_BODY_RADIUS) return s;
+        return { ...s, body: [s.body[0]], bodyHead: true };
+      });
+
       const visibleFoods = this.foodsInRange(cx, cy, vr);
 
       this.sendTo(id, {
         type: "state", tick: this.game.tick, playerId: id,
-        snakes: snakeList, foods: visibleFoods, leaderboard,
+        snakes, foods: visibleFoods, leaderboard,
       });
     }
   }
 
   private sendGameState(id: string) {
-    // 发送初始食物（视口内）
     const foods = Array.from(this.game.foods.values()).slice(0, 500);
     this.sendTo(id, {
-      type: "state",
-      tick: 0,
-      playerId: id,
+      type: "state", tick: 0, playerId: id,
       snakes: Array.from(this.game.snakes.values()),
-      foods,
-      leaderboard: [],
+      foods, leaderboard: [],
     });
   }
 
@@ -419,7 +582,7 @@ export class SnakeRoom {
   // ── 数据库 ──────────────────────────────────────────────────────────────────
 
   private async saveScore(snake: Snake) {
-    if (snake.id.startsWith("guest_") || snake.score === 0) return;
+    if (snake.id.startsWith("guest_") || snake.id.startsWith("bot_") || snake.score === 0) return;
     const now = Math.floor(Date.now() / 1000);
     await this.env.DB.prepare(
       `INSERT INTO snake_scores (user_id, username, avatar_url, score, kills, skin_id, updated_at)
@@ -433,13 +596,11 @@ export class SnakeRoom {
          updated_at=excluded.updated_at`
     ).bind(snake.id, snake.username, snake.avatarUrl, snake.score, snake.kills, snake.skinId, now).run();
 
-    // 单局记录
     const duration = Math.floor((Date.now() - snake.joinedAt) / 1000);
     await this.env.DB.prepare(
       `INSERT INTO snake_sessions (user_id, score, kills, duration_s, played_at) VALUES (?,?,?,?,?)`
     ).bind(snake.id, snake.score, snake.kills, duration, now).run();
 
-    // 只保留 snake_scores 前 100 名，超出的直接删除
     await this.env.DB.prepare(
       `DELETE FROM snake_scores WHERE user_id NOT IN (
          SELECT user_id FROM snake_scores ORDER BY score DESC LIMIT 100
@@ -452,8 +613,6 @@ export class SnakeRoom {
     const m = cookie.match(/(?:^|;\s*)session=([^;]*)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
-
-  // ── JWT 验证 ────────────────────────────────────────────────────────────────
 
   private async verifyToken(token: string): Promise<Record<string, unknown> | null> {
     try {
@@ -475,9 +634,10 @@ export class SnakeRoom {
   }
 }
 
+// ── 工具函数 ──────────────────────────────────────────────────────────────────
+
 function rand(n: number) { return Math.floor(Math.random() * n); }
 
-// 按权重抽取食物等级，再在该 tier 内随机 emoji 与分值
 function rollFood(): { type: number; value: number; tier: number } {
   let r = rand(FOOD_WEIGHT_TOTAL);
   let tier = 0;
@@ -486,7 +646,24 @@ function rollFood(): { type: number; value: number; tier: number } {
     r -= FOOD_TIERS[i].weight;
   }
   const def = FOOD_TIERS[tier];
-  const type = def.offset + rand(def.count);
-  const value = def.values[rand(def.values.length)];
-  return { type, value, tier };
+  return { type: def.offset + rand(def.count), value: def.values[rand(def.values.length)], tier };
+}
+
+function rollSkill(): { key: string; value: number } {
+  let r = rand(SKILL_WEIGHT_TOTAL);
+  for (const s of SKILLS) {
+    if (r < s.weight) return { key: s.key, value: s.value };
+    r -= s.weight;
+  }
+  return { key: SKILLS[0].key, value: 0 };
+}
+
+// 只返回尚未到期的 buff（客户端用于 HUD 显示）
+function activeEffects(fx: SnakeEffects, now: number): Partial<SnakeEffects> {
+  const out: Partial<SnakeEffects> = {};
+  for (const k of Object.keys(fx) as (keyof SnakeEffects)[]) {
+    const v = fx[k];
+    if (v && v > now) (out as Record<string, number>)[k] = v;
+  }
+  return out;
 }

@@ -64,3 +64,30 @@ export const FOOD_TIER_OFFSET: number[] = (() => {
   for (const t of FOOD_TIERS) { offsets.push(acc); acc += t.emojis.length; }
   return offsets;
 })();
+
+// ── 技能食物 ────────────────────────────────────────────────────────────────
+// 服务端权威实现效果，客户端据 food.skill 渲染、HUD 显示 buff。
+// 顺序须与 src/snake-room.ts 的 SKILLS 一致（靠 key 关联，不依赖索引）。
+
+export interface SkillDef {
+  key: string;        // 唯一标识，前后端一致
+  emoji: string;
+  color: string;      // 光晕 / HUD 颜色
+  label: string;      // 中文名
+  durationMs: number; // 持续型 buff 时长；0 = 瞬发（地雷/荆棘）
+}
+
+export const SKILL_FOODS: SkillDef[] = [
+  { key: "boost",  emoji: "⚡",  color: "#ffe600", label: "加速", durationMs: 10000 },
+  { key: "slow",   emoji: "❄️",  color: "#7fdfff", label: "减速", durationMs: 5000 },
+  { key: "mine",   emoji: "💣",  color: "#ff3b3b", label: "地雷", durationMs: 0 },
+  { key: "thorn",  emoji: "🌵",  color: "#5fbf6f", label: "荆棘", durationMs: 0 },
+  { key: "shield", emoji: "🛡️", color: "#4da6ff", label: "护盾", durationMs: 6000 },
+  { key: "magnet", emoji: "🧲",  color: "#ff8c42", label: "磁铁", durationMs: 8000 },
+  { key: "double", emoji: "💰",  color: "#ffd700", label: "双倍", durationMs: 8000 },
+  { key: "ghost",  emoji: "👻",  color: "#c9b6ff", label: "穿身", durationMs: 6000 },
+];
+
+export const SKILL_BY_KEY: Record<string, SkillDef> = Object.fromEntries(
+  SKILL_FOODS.map((s) => [s.key, s]),
+);

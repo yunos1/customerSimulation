@@ -13,7 +13,7 @@ interface Props {
 
 export function SnakeGame({ token, onBackToHub }: Props) {
   const {
-    snapshot, snapshotRef, prevSnapshotRef, snapshotTimeRef, tickMsRef,
+    snapshot, bufferRef, tickMsRef,
     connected, mapSize, playerId, steer, leave,
   } = useSnakeGame(token);
 
@@ -49,9 +49,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", background: "#0a0e1a", overflow: "hidden" }}>
       <GameCanvas
-        snapshotRef={snapshotRef}
-        prevSnapshotRef={prevSnapshotRef}
-        snapshotTimeRef={snapshotTimeRef}
+        bufferRef={bufferRef}
         tickMsRef={tickMsRef}
         mapSize={mapSize}
         playerId={playerId}
