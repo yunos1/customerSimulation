@@ -16,6 +16,7 @@ const FOOD_TARGET = 5000;
 const INIT_LENGTH = 5;
 const RESPAWN_MS = 5000;
 const MAX_PLAYERS = 50;
+const SKIN_COUNT = 20;
 const MAX_CONNECTIONS = MAX_PLAYERS * 3;
 const SAVE_INTERVAL_TICKS = 50;
 const FOOD_BUCKET = 25;
@@ -27,6 +28,11 @@ const FULL_BODY_RADIUS = 80; // 世界格数
 // AI bot 常驻数量
 const BOT_TARGET = 10;
 const BOT_NAMES = ["小红","小蓝","老王","阿强","小花","大壮","小鹿","阿宝","老虎","小鱼"];
+const BOT_WANDER_MIN_DIST = 180;
+const BOT_WANDER_REACHED_DIST = 30;
+const BOT_WANDER_RETARGET_TICKS = 90;
+const BOT_FOOD_SCAN_RADIUS = 55;
+const BOT_HIGH_VALUE_FOOD_RADIUS = 130;
 
 // ── 食物分层 ──────────────────────────────────────────────────────────────────
 // tier 0 基础, tier 1 中级, tier 2 高级（含技能食物，但技能单独控制权重）
@@ -85,6 +91,8 @@ interface Snake {
   effects: SnakeEffects;
   stepAccum: number; // 变速累加器（≥1 才真正移动一格）
   sessionRecorded: boolean;
+  botTarget?: Vec2;
+  botTargetTick?: number;
 }
 
 interface Food {
@@ -432,18 +440,66 @@ export class SnakeRoom {
       return;
     }
 
-    // 寻找最近食物（跳过地雷）
-    const nearby = this.foodsInRange(head.x, head.y, 40);
-    const safe = nearby.filter((f) => f.skill !== "mine");
-    if (safe.length) {
-      let nearest = safe[0], minD = Infinity;
-      for (const f of safe) {
-        const d = Math.hypot(f.x - head.x, f.y - head.y);
-        if (d < minD) { minD = d; nearest = f; }
-      }
-      const angle = Math.atan2(nearest.y - head.y, nearest.x - head.x) * 180 / Math.PI;
-      snake.angle = ((angle + 360) % 360);
+    const foodTarget = this.pickBotFoodTarget(head);
+    if (foodTarget) {
+      this.steerToward(snake, foodTarget);
+      return;
     }
+
+    if (!snake.botTarget || this.shouldRefreshBotTarget(snake, head)) {
+      snake.botTarget = this.randomBotTarget(head);
+      snake.botTargetTick = this.game.tick;
+    }
+    this.steerToward(snake, snake.botTarget);
+  }
+
+  private pickBotFoodTarget(head: Vec2): Food | null {
+    const nearby = this.foodsInRange(head.x, head.y, BOT_HIGH_VALUE_FOOD_RADIUS)
+      .filter((f) => f.skill !== "mine");
+    let best: Food | null = null;
+    let bestScore = -Infinity;
+    for (const food of nearby) {
+      const dx = food.x - head.x;
+      const dy = food.y - head.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > BOT_HIGH_VALUE_FOOD_RADIUS * BOT_HIGH_VALUE_FOOD_RADIUS) continue;
+      const closeEnough = d2 <= BOT_FOOD_SCAN_RADIUS * BOT_FOOD_SCAN_RADIUS;
+      const valuable = food.tier >= 1 || !!food.skill || food.value >= 3;
+      if (!closeEnough && !valuable) continue;
+      const score = food.value * 30 + food.tier * 50 + (food.skill ? 70 : 0) - Math.sqrt(d2);
+      if (score > bestScore) {
+        bestScore = score;
+        best = food;
+      }
+    }
+    return best;
+  }
+
+  private shouldRefreshBotTarget(snake: Snake, head: Vec2): boolean {
+    const target = snake.botTarget;
+    if (!target) return true;
+    const dx = target.x - head.x;
+    const dy = target.y - head.y;
+    return (
+      dx * dx + dy * dy <= BOT_WANDER_REACHED_DIST * BOT_WANDER_REACHED_DIST ||
+      this.game.tick - (snake.botTargetTick ?? 0) > BOT_WANDER_RETARGET_TICKS
+    );
+  }
+
+  private randomBotTarget(head: Vec2): Vec2 {
+    for (let i = 0; i < 20; i++) {
+      const target = { x: 40 + rand(MAP_SIZE - 80), y: 40 + rand(MAP_SIZE - 80) };
+      const dx = target.x - head.x;
+      const dy = target.y - head.y;
+      if (dx * dx + dy * dy >= BOT_WANDER_MIN_DIST * BOT_WANDER_MIN_DIST) return target;
+    }
+    return { x: rand(MAP_SIZE), y: rand(MAP_SIZE) };
+  }
+
+  private steerToward(snake: Snake, target: Vec2) {
+    const head = snake.body[0];
+    const angle = Math.atan2(target.y - head.y, target.x - head.x) * 180 / Math.PI;
+    snake.angle = ((angle + 360) % 360);
   }
 
   private killSnake(snake: Snake) {
@@ -461,13 +517,17 @@ export class SnakeRoom {
   private respawn(snake: Snake) {
     snake.alive = true;
     snake.respawnAt = 0;
-    snake.skinId = rand(10);
+    snake.skinId = rand(SKIN_COUNT);
     snake.stepAccum = 0;
     snake.effects = {} as SnakeEffects;
     const pos = this.randomEmptyPos();
     snake.body = [];
     for (let i = 0; i < INIT_LENGTH; i++) snake.body.push({ x: pos.x - i, y: pos.y });
     snake.angle = 0;
+    if (snake.isBot) {
+      snake.botTarget = this.randomBotTarget(pos);
+      snake.botTargetTick = this.game.tick;
+    }
   }
 
   private spawnSnake(id: string, username: string, avatarUrl: string | null, isBot: boolean) {
@@ -476,11 +536,13 @@ export class SnakeRoom {
     for (let i = 0; i < INIT_LENGTH; i++) body.push({ x: pos.x - i, y: pos.y });
     this.game.snakes.set(id, {
       id, username, avatarUrl,
-      skinId: rand(10), body, angle: 0,
+      skinId: rand(SKIN_COUNT), body, angle: 0,
       alive: true, score: 0, kills: 0,
       respawnAt: 0, joinedAt: Date.now(),
       isBot, effects: {} as SnakeEffects, stepAccum: 0,
       sessionRecorded: false,
+      botTarget: isBot ? this.randomBotTarget(pos) : undefined,
+      botTargetTick: isBot ? this.game.tick : undefined,
     });
   }
 

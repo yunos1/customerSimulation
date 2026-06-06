@@ -1,4 +1,4 @@
-// 10 套蛇皮肤 + 20 种食物定义
+// 20 套蛇皮肤 + 20 种食物定义
 
 export interface SkinDef {
   name: string;
@@ -19,6 +19,16 @@ export const SKINS: SkinDef[] = [
   { name: "银河星尘", head: "#e2e8f0", body: ["#e2e8f0", "#3b82f6", "#1e1b4b"], glow: "#93c5fd" },
   { name: "熔岩地狱", head: "#fca5a5", body: ["#fca5a5", "#dc2626", "#450a0a"], glow: "#ef4444" },
   { name: "像素复古", head: "#4ade80", body: ["#4ade80", "#166534", "#4ade80", "#166534"] },
+  { name: "量子紫电", head: "#f5d0fe", body: ["#f5d0fe", "#c026d3", "#4c1d95", "#22d3ee"], glow: "#d946ef" },
+  { name: "黑金王冠", head: "#fde68a", body: ["#fde68a", "#111827", "#f59e0b", "#030712"], glow: "#fbbf24" },
+  { name: "深海幽蓝", head: "#67e8f9", body: ["#67e8f9", "#0e7490", "#164e63", "#020617"], glow: "#22d3ee" },
+  { name: "樱花武士", head: "#fecdd3", body: ["#fecdd3", "#fb7185", "#881337", "#f9a8d4"], glow: "#fb7185" },
+  { name: "毒液绿潮", head: "#d9f99d", body: ["#d9f99d", "#84cc16", "#365314", "#bef264"], glow: "#a3e635" },
+  { name: "白昼棱镜", head: "#ffffff", body: ["#ffffff", "#fef08a", "#93c5fd", "#f0abfc", "#86efac"], glow: "#e0f2fe" },
+  { name: "赤月影刃", head: "#fecaca", body: ["#fecaca", "#991b1b", "#0f172a", "#ef4444"], glow: "#f87171" },
+  { name: "霜火双生", head: "#bae6fd", body: ["#bae6fd", "#38bdf8", "#f97316", "#7f1d1d"], glow: "#60a5fa" },
+  { name: "翡翠矩阵", head: "#bbf7d0", body: ["#bbf7d0", "#22c55e", "#052e16", "#14b8a6"], glow: "#34d399" },
+  { name: "星际玫瑰", head: "#fbcfe8", body: ["#fbcfe8", "#ec4899", "#312e81", "#06b6d4"], glow: "#f472b6" },
 ];
 
 // ── 食物分层 ──────────────────────────────────────────────────────────────────
