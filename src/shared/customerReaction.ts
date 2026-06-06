@@ -34,8 +34,7 @@ export async function requestCustomerReaction(body: unknown, config: AiConfig) {
   });
 
   if (!response.ok) {
-    const peek = (await response.text().catch(() => "")).slice(0, 300).replace(/\s+/g, " ");
-    throw new Error(`AI request failed with ${response.status} url=${baseUrl}/chat/completions :: ${peek}`);
+    throw new Error(`AI request failed with status ${response.status}`);
   }
 
   const data = (await response.json()) as {
