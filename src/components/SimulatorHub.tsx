@@ -149,10 +149,20 @@ export function SimulatorHub({
               <CirclePlay size={20} aria-hidden="true" />
               启动客服模拟器
             </button>
-            <a className="hub-secondary-action hub-slacker-btn" href="#simulator-library">
+            <button
+              className="hub-secondary-action hub-slacker-btn"
+              type="button"
+              onClick={() => {
+                if (!user) {
+                  onLogin();
+                } else {
+                  onLaunchSlacker();
+                }
+              }}
+            >
               <Fish size={18} aria-hidden="true" className="hub-fish-icon" />
-              摸鱼时刻
-            </a>
+              摸鱼时刻{!user && !authLoading ? " (需登录)" : ""}
+            </button>
           </div>
 
           <div className="hub-readouts" aria-label="盒子状态">
