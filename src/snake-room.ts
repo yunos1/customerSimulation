@@ -11,12 +11,14 @@ export interface Env {
 
 const MAP_SIZE = 1000;          // 地图格子数
 const CELL_SIZE = 20;           // px（客户端用）
-const TICK_MS = 160;            // 服务端 tick 间隔（稍慢，手感更好）
+const TICK_MS = 200;            // 服务端 tick 间隔（更慢，客户端插值保证顺滑）
 const FOOD_TARGET = 5000;       // 目标食物数量
 const INIT_LENGTH = 5;          // 初始蛇长
 const RESPAWN_MS = 5000;        // 死亡后复活等待
 const MAX_PLAYERS = 50;
 const BORDER_WARN = 50;         // 距边界多少格开始警告
+const SAVE_INTERVAL_TICKS = 50; // 每多少 tick 保存一次存活玩家分数（约 10s）
+const FOOD_BUCKET = 25;         // 食物空间网格 bucket 边长（格），用于邻近查询
 
 const FOOD_VALUES = [1,1,1,1,2,2,2,3,3,5]; // 随机权重，总10种映射20种食物
 
@@ -48,6 +50,8 @@ interface Food {
 interface GameState {
   snakes: Map<string, Snake>;
   foods: Map<string, Food>;   // key = `${x},${y}`
+  // 空间网格索引：bucketKey -> 该 bucket 内的食物 key 集合，用于邻近查询
+  foodGrid: Map<string, Set<string>>;
   tick: number;
 }
 
@@ -57,7 +61,7 @@ export class SnakeRoom {
   private state: DurableObjectState;
   private env: Env;
   private clients: Map<string, WebSocket> = new Map();
-  private game: GameState = { snakes: new Map(), foods: new Map(), tick: 0 };
+  private game: GameState = { snakes: new Map(), foods: new Map(), foodGrid: new Map(), tick: 0 };
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(state: DurableObjectState, env: Env) {
@@ -97,7 +101,7 @@ export class SnakeRoom {
     }
 
     // 发送初始状态
-    this.sendTo(id, { type: "init", mapSize: MAP_SIZE, cellSize: CELL_SIZE, playerId: id });
+    this.sendTo(id, { type: "init", mapSize: MAP_SIZE, cellSize: CELL_SIZE, tickMs: TICK_MS, playerId: id });
     this.sendGameState(id);
 
     server.addEventListener("message", (ev) => {
@@ -107,6 +111,9 @@ export class SnakeRoom {
 
     server.addEventListener("close", () => {
       this.clients.delete(id);
+      const snake = this.game.snakes.get(id);
+      // 离开时保存分数（存活的蛇 killSnake 未触发过 saveScore）
+      if (snake && snake.alive) void this.saveScore(snake);
       this.game.snakes.delete(id);
       if (this.clients.size === 0) this.stopTick();
     });
@@ -173,16 +180,24 @@ export class SnakeRoom {
       this.killSnake(victimSnake);
     }
 
-    // 吃食物（浮点坐标，检测半径 0.8 格）
+    // 吃食物（食物均在整数格，仅查头部周围 ±1 格，O(1) 而非全量遍历）
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
       const head = snake.body[0];
-      for (const [key, food] of this.game.foods) {
-        if (Math.hypot(food.x - head.x, food.y - head.y) < 0.8) {
-          snake.score += food.value;
-          this.game.foods.delete(key);
-          snake.body.push({ ...snake.body[snake.body.length - 1] });
-          break;
+      const minX = Math.floor(head.x - 0.8), maxX = Math.ceil(head.x + 0.8);
+      const minY = Math.floor(head.y - 0.8), maxY = Math.ceil(head.y + 0.8);
+      let eaten = false;
+      for (let gx = minX; gx <= maxX && !eaten; gx++) {
+        for (let gy = minY; gy <= maxY; gy++) {
+          const key = `${gx},${gy}`;
+          const food = this.game.foods.get(key);
+          if (food && Math.hypot(food.x - head.x, food.y - head.y) < 0.8) {
+            snake.score += food.value;
+            this.removeFood(key);
+            snake.body.push({ ...snake.body[snake.body.length - 1] });
+            eaten = true;
+            break;
+          }
         }
       }
     }
@@ -201,6 +216,13 @@ export class SnakeRoom {
       .slice(0, 10)
       .map((s) => ({ id: s.id, username: s.username, score: s.score, kills: s.kills }));
     this.broadcastDelta(leaderboard);
+
+    // 定时保存存活玩家分数（每约 10s），即使未死亡也入库 / 更新排行榜
+    if (this.game.tick % SAVE_INTERVAL_TICKS === 0) {
+      for (const snake of this.game.snakes.values()) {
+        if (snake.alive) void this.saveScore(snake);
+      }
+    }
   }
 
   private moveSnake(snake: Snake) {
@@ -223,12 +245,10 @@ export class SnakeRoom {
     snake.alive = false;
     snake.respawnAt = Date.now() + RESPAWN_MS;
 
-    // 全身变食物
+    // 全身变食物（取整到格，保证 O(1) 邻近查询能命中）
     for (const seg of snake.body) {
-      const key = `${seg.x},${seg.y}`;
-      if (!this.game.foods.has(key)) {
-        this.game.foods.set(key, { x: seg.x, y: seg.y, type: rand(20), value: 1 });
-      }
+      const x = Math.round(seg.x), y = Math.round(seg.y);
+      this.addFood(x, y, rand(20), 1);
     }
     snake.body = [];
 
@@ -262,10 +282,53 @@ export class SnakeRoom {
   private spawnFood() {
     const x = rand(MAP_SIZE);
     const y = rand(MAP_SIZE);
+    if (this.game.foods.has(`${x},${y}`)) return;
+    const vi = rand(FOOD_VALUES.length);
+    this.addFood(x, y, rand(20), FOOD_VALUES[vi]);
+  }
+
+  // ── 食物 + 空间网格索引 ──────────────────────────────────────────────────────
+  // foods 为权威数据，foodGrid 是按 bucket 分桶的二级索引，供邻近/视口查询。
+
+  private static bucketKey(x: number, y: number): string {
+    return `${Math.floor(x / FOOD_BUCKET)},${Math.floor(y / FOOD_BUCKET)}`;
+  }
+
+  private addFood(x: number, y: number, type: number, value: number) {
     const key = `${x},${y}`;
     if (this.game.foods.has(key)) return;
-    const vi = rand(FOOD_VALUES.length);
-    this.game.foods.set(key, { x, y, type: rand(20), value: FOOD_VALUES[vi] });
+    this.game.foods.set(key, { x, y, type, value });
+    const bk = SnakeRoom.bucketKey(x, y);
+    let bucket = this.game.foodGrid.get(bk);
+    if (!bucket) { bucket = new Set(); this.game.foodGrid.set(bk, bucket); }
+    bucket.add(key);
+  }
+
+  private removeFood(key: string) {
+    const food = this.game.foods.get(key);
+    if (!food) return;
+    this.game.foods.delete(key);
+    const bk = SnakeRoom.bucketKey(food.x, food.y);
+    const bucket = this.game.foodGrid.get(bk);
+    if (bucket) { bucket.delete(key); if (bucket.size === 0) this.game.foodGrid.delete(bk); }
+  }
+
+  // 查询某矩形世界范围内的食物（遍历重叠的 bucket，而非全量食物）
+  private foodsInRange(cx: number, cy: number, vr: number): Food[] {
+    const out: Food[] = [];
+    const bx0 = Math.floor((cx - vr) / FOOD_BUCKET), bx1 = Math.floor((cx + vr) / FOOD_BUCKET);
+    const by0 = Math.floor((cy - vr) / FOOD_BUCKET), by1 = Math.floor((cy + vr) / FOOD_BUCKET);
+    for (let bx = bx0; bx <= bx1; bx++) {
+      for (let by = by0; by <= by1; by++) {
+        const bucket = this.game.foodGrid.get(`${bx},${by}`);
+        if (!bucket) continue;
+        for (const key of bucket) {
+          const food = this.game.foods.get(key);
+          if (food && Math.abs(food.x - cx) <= vr && Math.abs(food.y - cy) <= vr) out.push(food);
+        }
+      }
+    }
+    return out;
   }
 
   private randomEmptyPos(): Vec2 {
@@ -282,7 +345,15 @@ export class SnakeRoom {
 
   private handleMessage(id: string, msg: { type: string; angle?: number }) {
     const snake = this.game.snakes.get(id);
-    if (!snake || !snake.alive) return;
+    if (!snake) return;
+
+    // 主动离开：保存分数后断开（前端点击返回时发送）
+    if (msg.type === "leave") {
+      if (snake.alive) void this.saveScore(snake);
+      return;
+    }
+
+    if (!snake.alive) return;
 
     if (msg.type === "steer" && typeof msg.angle === "number") {
       // 限速：每 tick 最多转一次（由客户端节流，服务端直接接受角度）
@@ -308,12 +379,7 @@ export class SnakeRoom {
       const cy = snake.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
       const vr = 60;
 
-      const visibleFoods: Food[] = [];
-      for (const food of this.game.foods.values()) {
-        if (Math.abs(food.x - cx) <= vr && Math.abs(food.y - cy) <= vr) {
-          visibleFoods.push(food);
-        }
-      }
+      const visibleFoods = this.foodsInRange(cx, cy, vr);
 
       this.sendTo(id, {
         type: "state", tick: this.game.tick, playerId: id,

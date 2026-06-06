@@ -22,6 +22,10 @@ export function useSnakeGame(token: string | null) {
   // snapshotRef 供 GameCanvas rAF 循环读取（无 React 重渲染开销）
   // snapshot state 供 HUD / MiniMap（100ms 频率，可接受）
   const snapshotRef = useRef<GameSnapshot | null>(null);
+  // 上一帧快照 + 到达时间，供 GameCanvas 插值（平滑 tick 之间的移动）
+  const prevSnapshotRef = useRef<GameSnapshot | null>(null);
+  const snapshotTimeRef = useRef<number>(0);
+  const tickMsRef = useRef<number>(200);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [mapSize, setMapSize] = useState(1000);
@@ -41,8 +45,11 @@ export function useSnakeGame(token: string | null) {
       if (msg.type === "init") {
         playerIdRef.current = msg.playerId;
         setMapSize(msg.mapSize);
+        if (typeof msg.tickMs === "number") tickMsRef.current = msg.tickMs;
       } else if (msg.type === "state") {
+        prevSnapshotRef.current = snapshotRef.current;
         snapshotRef.current = msg as GameSnapshot;
+        snapshotTimeRef.current = performance.now();
         setSnapshot(msg as GameSnapshot);
       }
     };
@@ -54,5 +61,13 @@ export function useSnakeGame(token: string | null) {
     wsRef.current?.send(JSON.stringify({ type: "steer", angle }));
   }, []);
 
-  return { snapshot, snapshotRef, connected, mapSize, playerId: playerIdRef.current, steer };
+  // 主动离开：通知服务端保存分数（在断开前发送）
+  const leave = useCallback(() => {
+    try { wsRef.current?.send(JSON.stringify({ type: "leave" })); } catch { /* closed */ }
+  }, []);
+
+  return {
+    snapshot, snapshotRef, prevSnapshotRef, snapshotTimeRef, tickMsRef,
+    connected, mapSize, playerId: playerIdRef.current, steer, leave,
+  };
 }

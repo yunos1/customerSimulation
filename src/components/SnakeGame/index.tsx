@@ -12,7 +12,10 @@ interface Props {
 }
 
 export function SnakeGame({ token, onBackToHub }: Props) {
-  const { snapshot, snapshotRef, connected, mapSize, playerId, steer } = useSnakeGame(token);
+  const {
+    snapshot, snapshotRef, prevSnapshotRef, snapshotTimeRef, tickMsRef,
+    connected, mapSize, playerId, steer, leave,
+  } = useSnakeGame(token);
 
   const handleSteer = useCallback(
     (angle: number) => steer(angle),
@@ -20,6 +23,12 @@ export function SnakeGame({ token, onBackToHub }: Props) {
   );
 
   useGameInput(handleSteer);
+
+  // 返回前先通知服务端保存分数，留出一帧时间发送再断开
+  const handleBack = useCallback(() => {
+    leave();
+    setTimeout(onBackToHub, 120);
+  }, [leave, onBackToHub]);
 
   // 空格加速（发特殊角度标记，服务端可扩展）
   // 当前版本加速为预留，前端已接收输入
@@ -39,9 +48,16 @@ export function SnakeGame({ token, onBackToHub }: Props) {
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", background: "#0a0e1a", overflow: "hidden" }}>
-      <GameCanvas snapshotRef={snapshotRef} mapSize={mapSize} playerId={playerId} />
+      <GameCanvas
+        snapshotRef={snapshotRef}
+        prevSnapshotRef={prevSnapshotRef}
+        snapshotTimeRef={snapshotTimeRef}
+        tickMsRef={tickMsRef}
+        mapSize={mapSize}
+        playerId={playerId}
+      />
       <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={snapshot?.snakes.find(s => s.id === playerId)?.alive === false} />
-      <GameHUD snapshot={snapshot} playerId={playerId} onBackToHub={onBackToHub} />
+      <GameHUD snapshot={snapshot} playerId={playerId} onBackToHub={handleBack} />
     </div>
   );
 }

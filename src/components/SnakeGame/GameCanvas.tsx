@@ -16,11 +16,14 @@ function lighten(hex: string, amount: number): string {
 
 interface Props {
   snapshotRef: React.RefObject<GameSnapshot | null>;
+  prevSnapshotRef: React.RefObject<GameSnapshot | null>;
+  snapshotTimeRef: React.RefObject<number>;
+  tickMsRef: React.RefObject<number>;
   mapSize: number;
   playerId: string;
 }
 
-export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
+export function GameCanvas({ snapshotRef, prevSnapshotRef, snapshotTimeRef, tickMsRef, mapSize, playerId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // rAF 渲染循环，直接读 ref，不触发 React 重渲染
@@ -37,9 +40,30 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
       const W = canvas.width;
       const H = canvas.height;
 
+    // ── 插值：在两个 tick 快照之间平滑过渡，消除移动卡顿 ──
+    const prev = prevSnapshotRef.current;
+    const tickMs = tickMsRef.current || 200;
+    const t = Math.min(1, (performance.now() - snapshotTimeRef.current) / tickMs);
+    // 上一帧各蛇身体（按 id 索引），用于逐节点插值
+    const prevBodies = new Map<string, { x: number; y: number }[]>();
+    if (prev) for (const s of prev.snakes) prevBodies.set(s.id, s.body);
+
+    // 返回某条蛇的插值后身体；服务端每 tick unshift 头、pop 尾，
+    // 故 current.body[i] 一个 tick 前位于 prev.body[i]，逐索引插值即顺滑。
+    const lerpBody = (snake: GameSnapshot["snakes"][number]): { x: number; y: number }[] => {
+      const pb = prevBodies.get(snake.id);
+      if (!pb || t >= 1) return snake.body;
+      return snake.body.map((seg, i) => {
+        const p = pb[i];
+        if (!p) return seg; // 新增尾节点（吃食物变长），无前序，直接用当前位置
+        return { x: p.x + (seg.x - p.x) * t, y: p.y + (seg.y - p.y) * t };
+      });
+    };
+
     const me = snapshot.snakes.find((s) => s.id === playerId);
-    const cx = me?.alive && me.body.length ? me.body[0].x : mapSize / 2;
-    const cy = me?.alive && me.body.length ? me.body[0].y : mapSize / 2;
+    const meBody = me ? lerpBody(me) : null;
+    const cx = me?.alive && meBody?.length ? meBody[0].x : mapSize / 2;
+    const cy = me?.alive && meBody?.length ? meBody[0].y : mapSize / 2;
 
     const vx0 = cx - W / 2 / CELL;
     const vy0 = cy - H / 2 / CELL;
@@ -102,18 +126,19 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
     }
 
     // 蛇
-    const R = CELL / 2;
+    const R = CELL * 0.44; // 略微缩小蛇身（原 CELL/2）
     const HR = R + 2;
 
     for (const snake of snapshot.snakes) {
       if (!snake.alive || !snake.body.length) continue;
       const skin = SKINS[snake.skinId % SKINS.length];
       const isMe = snake.id === playerId;
+      const body = lerpBody(snake);
 
       // 视口内节点（直接计算屏幕坐标，避免临时对象）
       const vsegs: Array<{ i: number; sx: number; sy: number }> = [];
-      for (let i = 0; i < snake.body.length; i++) {
-        const seg = snake.body[i];
+      for (let i = 0; i < body.length; i++) {
+        const seg = body[i];
         if (seg.x < vx0 - PAD || seg.x > vxMax + PAD || seg.y < vy0 - PAD || seg.y > vyMax + PAD) continue;
         vsegs.push({ i, sx: (seg.x - vx0) * CELL, sy: (seg.y - vy0) * CELL });
       }
@@ -178,7 +203,7 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
       ctx.restore();
 
       // 用户名（头在视口内才画）
-      const h0 = snake.body[0];
+      const h0 = body[0];
       if (h0.x >= vx0 - PAD && h0.x <= vxMax + PAD) {
         const nhx = (h0.x - vx0) * CELL, nhy = (h0.y - vy0) * CELL;
         ctx.shadowColor = skin.glow ?? "transparent";
@@ -193,8 +218,8 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
     }
 
     // 边界警示
-    if (me?.alive && me.body.length) {
-      const head = me.body[0];
+    if (me?.alive && meBody?.length) {
+      const head = meBody[0];
       const WARN = 50;
       const alpha = (dist: number) => Math.max(0, Math.min(0.6, 1 - dist / WARN)) * 0.6;
       const drawWarn = (grad: CanvasGradient, a: number) => {
