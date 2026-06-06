@@ -3,7 +3,16 @@ import { useEffect, useRef } from "react";
 import { SKINS, FOODS } from "./skins";
 import type { GameSnapshot } from "./useSnakeGame";
 
-const CELL = 20; // px per cell
+const CELL = 26; // px per cell
+
+// hex 颜色提亮（amount 0-1）
+function lighten(hex: string, amount: number): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const r = Math.min(255, ((n >> 16) & 0xff) + Math.round(255 * amount));
+  const g = Math.min(255, ((n >> 8) & 0xff) + Math.round(255 * amount));
+  const b = Math.min(255, (n & 0xff) + Math.round(255 * amount));
+  return `rgb(${r},${g},${b})`;
+}
 
 interface Props {
   snapshotRef: React.RefObject<GameSnapshot | null>;
@@ -28,16 +37,17 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
       const W = canvas.width;
       const H = canvas.height;
 
-    // 找自己的蛇头，决定视口中心
     const me = snapshot.snakes.find((s) => s.id === playerId);
     const cx = me?.alive && me.body.length ? me.body[0].x : mapSize / 2;
     const cy = me?.alive && me.body.length ? me.body[0].y : mapSize / 2;
 
-    // 视口左上角（世界坐标，单位格）
     const vx0 = cx - W / 2 / CELL;
     const vy0 = cy - H / 2 / CELL;
+    // 视口世界坐标范围（用于快速裁剪，避免 toScreen 调用）
+    const vxMax = vx0 + W / CELL;
+    const vyMax = vy0 + H / CELL;
+    const PAD = 2; // 额外格子边距
 
-    // 世界坐标 → 屏幕坐标
     const toScreen = (wx: number, wy: number) => [
       (wx - vx0) * CELL,
       (wy - vy0) * CELL,
@@ -45,15 +55,17 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
 
     ctx.clearRect(0, 0, W, H);
 
-    // 背景网格
+    // 背景
     ctx.fillStyle = "#0a0e1a";
     ctx.fillRect(0, 0, W, H);
+
+    // 网格线（每帧只画可视范围）
     ctx.strokeStyle = "rgba(255,255,255,0.04)";
     ctx.lineWidth = 1;
     const gxStart = Math.floor(vx0);
     const gyStart = Math.floor(vy0);
-    const gxEnd = Math.ceil(vx0 + W / CELL);
-    const gyEnd = Math.ceil(vy0 + H / CELL);
+    const gxEnd = Math.ceil(vxMax);
+    const gyEnd = Math.ceil(vyMax);
     ctx.beginPath();
     for (let gx = gxStart; gx <= gxEnd; gx++) {
       const sx = (gx - vx0) * CELL;
@@ -74,82 +86,117 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
     ctx.strokeStyle = "#ff4444";
     ctx.lineWidth = 5;
     ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
-    // 内侧第二层
     ctx.shadowBlur = 8;
     ctx.strokeStyle = "rgba(255,100,100,0.5)";
     ctx.lineWidth = 10;
     ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
     ctx.restore();
 
-    // 食物
+    // 食物：直接用世界坐标裁剪，跳过视口外的
     ctx.font = `${CELL - 2}px serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const food of snapshot.foods) {
-      const [sx, sy] = toScreen(food.x, food.y);
-      if (sx < -CELL || sy < -CELL || sx > W + CELL || sy > H + CELL) continue;
-      ctx.fillText(FOODS[food.type % 20], sx + CELL / 2, sy + CELL / 2);
+      if (food.x < vx0 - PAD || food.x > vxMax + PAD || food.y < vy0 - PAD || food.y > vyMax + PAD) continue;
+      ctx.fillText(FOODS[food.type % 20], (food.x - vx0) * CELL + CELL / 2, (food.y - vy0) * CELL + CELL / 2);
     }
 
     // 蛇
+    const R = CELL / 2;
+    const HR = R + 2;
+
     for (const snake of snapshot.snakes) {
       if (!snake.alive || !snake.body.length) continue;
       const skin = SKINS[snake.skinId % SKINS.length];
       const isMe = snake.id === playerId;
 
+      // 视口内节点（直接计算屏幕坐标，避免临时对象）
+      const vsegs: Array<{ i: number; sx: number; sy: number }> = [];
+      for (let i = 0; i < snake.body.length; i++) {
+        const seg = snake.body[i];
+        if (seg.x < vx0 - PAD || seg.x > vxMax + PAD || seg.y < vy0 - PAD || seg.y > vyMax + PAD) continue;
+        vsegs.push({ i, sx: (seg.x - vx0) * CELL, sy: (seg.y - vy0) * CELL });
+      }
+      if (!vsegs.length) continue;
+
       ctx.save();
-      if (skin.glow) {
-        ctx.shadowColor = skin.glow;
-        ctx.shadowBlur = isMe ? 12 : 6;
+
+      // 1. 管状身体（单次 stroke）
+      if (skin.glow) { ctx.shadowColor = skin.glow; ctx.shadowBlur = isMe ? 18 : 10; }
+      ctx.beginPath();
+      ctx.lineWidth = R * 2 - 1;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = skin.body[0];
+      let drawing = false;
+      for (let vi = 0; vi < vsegs.length; vi++) {
+        const { i, sx, sy } = vsegs[vi];
+        const pcx = sx + R, pcy = sy + R;
+        if (!drawing || (vi > 0 && i !== vsegs[vi - 1].i + 1)) {
+          ctx.moveTo(pcx, pcy); drawing = true;
+        } else {
+          ctx.lineTo(pcx, pcy);
+        }
+      }
+      ctx.stroke();
+
+      // 2. 彩色节点覆盖（无渐变，直接 fillStyle，避免每节 createRadialGradient）
+      ctx.shadowBlur = 0;
+      for (const { i, sx, sy } of vsegs) {
+        if (i === 0) continue;
+        ctx.fillStyle = skin.body[i % skin.body.length];
+        ctx.beginPath();
+        ctx.arc(sx + R, sy + R, R - 0.5, 0, Math.PI * 2);
+        ctx.fill();
       }
 
-      for (let i = snake.body.length - 1; i >= 0; i--) {
-        const seg = snake.body[i];
-        const [sx, sy] = toScreen(seg.x, seg.y);
-        if (sx < -CELL || sy < -CELL || sx > W + CELL || sy > H + CELL) continue;
-
-        const colorIdx = i % skin.body.length;
-        ctx.fillStyle = i === 0 ? skin.head : skin.body[colorIdx];
-        const r = i === 0 ? CELL / 2 - 1 : CELL / 2 - 2;
+      // 3. 蛇头
+      const headSeg = vsegs.find(({ i }) => i === 0);
+      if (headSeg) {
+        const hcx = headSeg.sx + R, hcy = headSeg.sy + R;
+        if (skin.glow) { ctx.shadowColor = skin.glow; ctx.shadowBlur = isMe ? 24 : 14; }
+        ctx.fillStyle = lighten(skin.head, 0.25);
         ctx.beginPath();
-        ctx.arc(sx + CELL / 2, sy + CELL / 2, r, 0, Math.PI * 2);
+        ctx.arc(hcx, hcy, HR, 0, Math.PI * 2);
         ctx.fill();
-
-        // 蛇头眼睛
-        if (i === 0) {
-          ctx.shadowBlur = 0;
+        ctx.shadowBlur = 0;
+        // 眼睛
+        const angle = (snake.angle * Math.PI) / 180;
+        const ex = Math.cos(angle) * R * 0.45, ey = Math.sin(angle) * R * 0.45;
+        const ep = Math.cos(angle + Math.PI / 2) * R * 0.35, eq = Math.sin(angle + Math.PI / 2) * R * 0.35;
+        for (const side of [1, -1] as const) {
           ctx.fillStyle = "#fff";
-          const eyeOffset = CELL * 0.2;
           ctx.beginPath();
-          ctx.arc(sx + CELL / 2 + eyeOffset, sy + CELL / 2 - eyeOffset, 3, 0, Math.PI * 2);
-          ctx.arc(sx + CELL / 2 - eyeOffset, sy + CELL / 2 - eyeOffset, 3, 0, Math.PI * 2);
+          ctx.arc(hcx + ex + ep * side, hcy + ey + eq * side, 3.5, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = "#000";
+          ctx.fillStyle = "#111";
           ctx.beginPath();
-          ctx.arc(sx + CELL / 2 + eyeOffset, sy + CELL / 2 - eyeOffset, 1.5, 0, Math.PI * 2);
-          ctx.arc(sx + CELL / 2 - eyeOffset, sy + CELL / 2 - eyeOffset, 1.5, 0, Math.PI * 2);
+          ctx.arc(hcx + ex + ep * side + Math.cos(angle), hcy + ey + eq * side + Math.sin(angle), 2, 0, Math.PI * 2);
           ctx.fill();
         }
       }
       ctx.restore();
 
-      // 用户名
-      if (snake.body.length) {
-        const [hx, hy] = toScreen(snake.body[0].x, snake.body[0].y);
-        ctx.fillStyle = isMe ? "#fff" : "rgba(255,255,255,0.7)";
-        ctx.font = isMe ? "bold 12px sans-serif" : "11px sans-serif";
+      // 用户名（头在视口内才画）
+      const h0 = snake.body[0];
+      if (h0.x >= vx0 - PAD && h0.x <= vxMax + PAD) {
+        const nhx = (h0.x - vx0) * CELL, nhy = (h0.y - vy0) * CELL;
+        ctx.shadowColor = skin.glow ?? "transparent";
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = isMe ? "#fff" : "rgba(255,255,255,0.75)";
+        ctx.font = isMe ? "bold 13px sans-serif" : "11px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
-        ctx.fillText(snake.username, hx + CELL / 2, hy - 2);
+        ctx.fillText(snake.username, nhx + R, nhy - 4);
+        ctx.shadowBlur = 0;
       }
     }
 
-    // 边界警示覆盖层
+    // 边界警示
     if (me?.alive && me.body.length) {
       const head = me.body[0];
       const WARN = 50;
       const alpha = (dist: number) => Math.max(0, Math.min(0.6, 1 - dist / WARN)) * 0.6;
-
       const drawWarn = (grad: CanvasGradient, a: number) => {
         if (a <= 0) return;
         grad.addColorStop(0, `rgba(255,50,50,${a})`);
@@ -157,7 +204,6 @@ export function GameCanvas({ snapshotRef, mapSize, playerId }: Props) {
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
       };
-
       if (head.x < WARN) drawWarn(ctx.createLinearGradient(0, 0, W * 0.3, 0), alpha(head.x));
       if (head.x > mapSize - WARN) drawWarn(ctx.createLinearGradient(W, 0, W * 0.7, 0), alpha(mapSize - head.x));
       if (head.y < WARN) drawWarn(ctx.createLinearGradient(0, 0, 0, H * 0.3), alpha(head.y));

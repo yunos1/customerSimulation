@@ -102,7 +102,7 @@ export function MiniMap({ snapshot, mapSize, playerId, isDead }: Props) {
       onTouchEnd={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
-        bottom: expanded ? undefined : 16,
+        bottom: expanded ? undefined : 60,
         right: expanded ? undefined : 16,
         top: expanded ? `calc(50% - ${EXPAND / 2}px + ${offset.y}px)` : undefined,
         left: expanded ? `calc(50% - ${EXPAND / 2}px + ${offset.x}px)` : undefined,
