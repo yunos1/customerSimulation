@@ -221,13 +221,10 @@ export class SnakeRoom {
       const hasGhost = now < (snake.effects.ghost ?? 0);
       if (hasGhost) continue;
       const head = snake.body[0];
-      for (const seg of this.nearbyBodySegments(collisionGrid, head.x, head.y)) {
-        if (seg.snakeId === snake.id) continue;
-        if (Math.hypot(seg.x - head.x, seg.y - head.y) < 0.8) {
-          const hasShield = now < (snake.effects.shield ?? 0);
-          if (!hasShield) deaths.push({ killer: seg.snakeId, victim: snake.id });
-          break;
-        }
+      const hit = this.findBodyHit(collisionGrid, snake.id, head.x, head.y);
+      if (hit) {
+        const hasShield = now < (snake.effects.shield ?? 0);
+        if (!hasShield) deaths.push({ killer: hit.snakeId, victim: snake.id });
       }
     }
 
@@ -252,7 +249,10 @@ export class SnakeRoom {
         for (let gy = minY; gy <= maxY; gy++) {
           const key = `${gx},${gy}`;
           const food = this.game.foods.get(key);
-          if (food && Math.hypot(food.x - head.x, food.y - head.y) < 0.8) {
+          if (food) {
+            const dx = food.x - head.x;
+            const dy = food.y - head.y;
+            if (dx * dx + dy * dy >= 0.64) continue;
             this.applyFood(snake, food, key, now);
             eaten = true;
             break outer;
@@ -386,7 +386,10 @@ export class SnakeRoom {
   // ── Bot AI ──────────────────────────────────────────────────────────────────
 
   private maintainBots() {
-    const botCount = Array.from(this.game.snakes.values()).filter((s) => s.isBot).length;
+    let botCount = 0;
+    for (const snake of this.game.snakes.values()) {
+      if (snake.isBot) botCount++;
+    }
     const need = BOT_TARGET - botCount;
     for (let i = 0; i < need; i++) {
       const idx = rand(BOT_NAMES.length);
@@ -412,17 +415,22 @@ export class SnakeRoom {
     return grid;
   }
 
-  private nearbyBodySegments(grid: Map<string, BodySegmentRef[]>, x: number, y: number): BodySegmentRef[] {
-    const out: BodySegmentRef[] = [];
+  private findBodyHit(grid: Map<string, BodySegmentRef[]>, ownId: string, x: number, y: number): BodySegmentRef | null {
     const bx = Math.floor(x / COLLISION_BUCKET);
     const by = Math.floor(y / COLLISION_BUCKET);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const bucket = grid.get(`${bx + dx},${by + dy}`);
-        if (bucket) out.push(...bucket);
+        if (!bucket) continue;
+        for (const seg of bucket) {
+          if (seg.snakeId === ownId) continue;
+          const sx = seg.x - x;
+          const sy = seg.y - y;
+          if (sx * sx + sy * sy < 0.64) return seg;
+        }
       }
     }
-    return out;
+    return null;
   }
 
   private botSteer(snake: Snake) {
@@ -454,11 +462,11 @@ export class SnakeRoom {
   }
 
   private pickBotFoodTarget(head: Vec2): Food | null {
-    const nearby = this.foodsInRange(head.x, head.y, BOT_HIGH_VALUE_FOOD_RADIUS)
-      .filter((f) => f.skill !== "mine");
+    const nearby = this.foodsInRange(head.x, head.y, BOT_HIGH_VALUE_FOOD_RADIUS);
     let best: Food | null = null;
     let bestScore = -Infinity;
     for (const food of nearby) {
+      if (food.skill === "mine") continue;
       const dx = food.x - head.x;
       const dy = food.y - head.y;
       const d2 = dx * dx + dy * dy;
@@ -700,10 +708,17 @@ export class SnakeRoom {
   }
 
   private sendGameState(clientId: string, id: string) {
-    const foods = Array.from(this.game.foods.values()).slice(0, 500);
+    const snake = this.game.snakes.get(id);
+    const cx = snake?.alive && snake.body.length ? snake.body[0].x : MAP_SIZE / 2;
+    const cy = snake?.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
+    const snakes = Array.from(this.game.snakes.values()).map((s) => {
+      if (!s.alive || !s.body.length) return s;
+      return this.clipSnakeBodyForView(s, id, cx, cy, VIEW_RADIUS);
+    });
+    const foods = this.foodsInRange(cx, cy, VIEW_RADIUS);
     this.sendToClient(clientId, {
       type: "state", tick: 0, playerId: id,
-      snakes: Array.from(this.game.snakes.values()),
+      snakes,
       foods, leaderboard: [],
     });
   }

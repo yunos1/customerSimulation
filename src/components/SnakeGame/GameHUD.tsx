@@ -12,6 +12,7 @@ interface Props {
 export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
   const [kills, setKills] = useState<string[]>([]);
   const prevKillsRef = useRef(0);
+  const prevLeaderIndexRef = useRef(-1);
   const leaderScrollRef = useRef<HTMLDivElement>(null);
 
   const me = snapshot?.snakes.find((s) => s.id === playerId);
@@ -30,6 +31,8 @@ export function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
   useEffect(() => {
     const idx = leaderboard.findIndex((e) => e.id === playerId);
     if (idx < 0 || !leaderScrollRef.current) return;
+    if (idx === prevLeaderIndexRef.current) return;
+    prevLeaderIndexRef.current = idx;
     const children = leaderScrollRef.current.children;
     if (children[idx]) (children[idx] as HTMLElement).scrollIntoView({ block: "nearest" });
   }, [leaderboard, playerId]);

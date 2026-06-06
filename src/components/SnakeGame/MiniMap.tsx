@@ -4,6 +4,7 @@ import type { GameSnapshot } from "./useSnakeGame";
 
 const SIZE = 140; // 缩小后的尺寸
 const EXPAND = 420; // 展开后的尺寸
+const FOOD_DOT = ["rgba(100,255,100,0.5)", "#ffd700", "#00f5ff"];
 
 interface Props {
   snapshot: GameSnapshot | null;
@@ -14,6 +15,7 @@ interface Props {
 
 export function MiniMap({ snapshot, mapSize, playerId, isDead }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const [expanded, setExpanded] = useState(false);
   // 拖动偏移（展开时）
   const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
@@ -29,14 +31,15 @@ export function MiniMap({ snapshot, mapSize, playerId, isDead }: Props) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !snapshot) return;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = ctxRef.current ?? canvas.getContext("2d");
+    if (!ctx) return;
+    ctxRef.current = ctx;
     const scale = size / mapSize;
 
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, 0, size, size);
 
-    const FOOD_DOT = ["rgba(100,255,100,0.5)", "#ffd700", "#00f5ff"];
     for (const food of snapshot.foods) {
       const tier = food.tier ?? 0;
       ctx.fillStyle = FOOD_DOT[tier] ?? FOOD_DOT[0];
