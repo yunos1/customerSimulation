@@ -47,9 +47,20 @@ export function useSnakeGame(token: string | null) {
         setMapSize(msg.mapSize);
         if (typeof msg.tickMs === "number") tickMsRef.current = msg.tickMs;
       } else if (msg.type === "state") {
+        const now = performance.now();
+        // 实测两次快照间隔，EMA 平滑后作为插值时长。
+        // 网络/tick 抖动会让快照晚到，写死 200ms 会令蛇「插完冻一下再跳」；
+        // 用实测间隔（略放大）让插值铺满真实到达节奏，移动顺滑。
+        const last = snapshotTimeRef.current;
+        if (last) {
+          const gap = now - last;
+          if (gap > 30 && gap < 1000) {
+            tickMsRef.current = tickMsRef.current * 0.7 + gap * 0.3;
+          }
+        }
         prevSnapshotRef.current = snapshotRef.current;
         snapshotRef.current = msg as GameSnapshot;
-        snapshotTimeRef.current = performance.now();
+        snapshotTimeRef.current = now;
         setSnapshot(msg as GameSnapshot);
       }
     };

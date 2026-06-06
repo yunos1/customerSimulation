@@ -197,8 +197,9 @@ export function GameCanvas({ snapshotRef, prevSnapshotRef, snapshotTimeRef, tick
 
       ctx.save();
 
-      // 1. 管状身体（单次 stroke）
-      if (skin.glow) { ctx.shadowColor = skin.glow; ctx.shadowBlur = isMe ? 18 : 10; }
+      // 1. 管状身体（单次 stroke）。shadowBlur 是 canvas 最贵操作，
+      //    仅本人蛇身保留辉光；他人蛇身省略（蛇头仍有辉光），人多时显著提速。
+      if (skin.glow && isMe) { ctx.shadowColor = skin.glow; ctx.shadowBlur = 18; }
       ctx.beginPath();
       ctx.lineWidth = R * 2 - 1;
       ctx.lineCap = "round";

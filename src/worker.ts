@@ -293,6 +293,17 @@ async function handleSnakeLeaderboard(_request: Request, env: Env) {
 async function handleSnakeWs(request: Request, env: Env) {
   const id = env.SNAKE_ROOM.idFromName("main");
   const room = env.SNAKE_ROOM.get(id);
+  // session cookie 是 HttpOnly，前端 JS 读不到，无法放进 WS URL。
+  // 在 Worker 侧从握手请求的 cookie 取出 JWT，显式作为 ?token= 传给 DO，
+  // 保证已登录用户被正确识别（不再回退为游客）。
+  const url = new URL(request.url);
+  if (!url.searchParams.get("token")) {
+    const cookieToken = getCookie(request, "session");
+    if (cookieToken) {
+      url.searchParams.set("token", cookieToken);
+      return room.fetch(new Request(url.toString(), request));
+    }
+  }
   return room.fetch(request);
 }
 
