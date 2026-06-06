@@ -418,9 +418,11 @@ function answerSession(
     nextRoundIndex,
     nextOutcomeMetrics,
   );
+  const lastMsg = session.messages[session.messages.length - 1];
+  const agentMsgAlreadyAdded = lastMsg?.speaker === "agent" && lastMsg.text === card.title;
   const baseMessages = trimSessionMessages([
     ...session.messages,
-    createMessage("agent", card.title),
+    ...(agentMsgAlreadyAdded ? [] : [createMessage("agent", card.title)]),
     createMessage("customer", reactionLine),
     createMessage("system", feedback.message),
   ]);
