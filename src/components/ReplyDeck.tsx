@@ -9,8 +9,10 @@ import {
   Truck,
   UserCheck,
   SendHorizontal,
+  LayoutGrid,
+  ChevronDown,
 } from "lucide-react";
-import { FormEvent, memo, useState } from "react";
+import { FormEvent, KeyboardEvent, memo, useState } from "react";
 import type { ReplyCard } from "../game/types";
 
 interface ReplyDeckProps {
@@ -43,9 +45,9 @@ export const ReplyDeck = memo(function ReplyDeck({
   onSubmitFreeReply,
 }: ReplyDeckProps) {
   const [freeReply, setFreeReply] = useState("");
+  const [cardsOpen, setCardsOpen] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submitReply = () => {
     const trimmedReply = freeReply.trim();
 
     if (!trimmedReply || disabled) {
@@ -56,8 +58,20 @@ export const ReplyDeck = memo(function ReplyDeck({
     setFreeReply("");
   };
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    submitReply();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      submitReply();
+    }
+  };
+
   return (
-    <div className="reply-deck">
+    <div className={`reply-deck ${cardsOpen ? "reply-deck-cards-open" : ""}`}>
       <div className="reply-heading">
         <p className="eyebrow">客服回复</p>
         <h2>输入或选择回复</h2>
@@ -68,15 +82,27 @@ export const ReplyDeck = memo(function ReplyDeck({
             aria-label="自定义客服回复"
             disabled={disabled}
             maxLength={180}
-            placeholder="输入你的回复，客户会根据语义自动理解并回应..."
+            placeholder="输入你的回复，回车发送（Shift+回车换行）..."
             value={freeReply}
             onChange={(event) => setFreeReply(event.target.value)}
+            onKeyDown={handleKeyDown}
           />
           <button className="primary-button" disabled={disabled || !freeReply.trim()} type="submit">
             <SendHorizontal size={17} aria-hidden="true" />
             {isThinking ? "分析中" : "发送"}
           </button>
         </form>
+
+        <button
+          className="reply-cards-toggle"
+          type="button"
+          aria-expanded={cardsOpen}
+          onClick={() => setCardsOpen((open) => !open)}
+        >
+          <LayoutGrid size={16} aria-hidden="true" />
+          快捷回复（{cards.length}）
+          <ChevronDown className="reply-cards-toggle-chevron" size={16} aria-hidden="true" />
+        </button>
 
         <div className="reply-grid">
           {cards.map((card) => {

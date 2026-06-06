@@ -2053,6 +2053,11 @@
   min-width: 0;
 }
 
+/* 折叠快捷回复的开关，仅在手机端显示 */
+.reply-cards-toggle {
+  display: none;
+}
+
 .free-reply-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5467,6 +5472,91 @@
   .interview-start-button,
   .interview-answer-actions .primary-button {
     width: 100%;
+  }
+
+  /* 客服游戏：输入框固定在屏幕底部 */
+  .app-shell {
+    padding-bottom: calc(176px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .reply-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    margin-top: 0;
+    max-height: 60vh;
+    overflow-y: auto;
+    border: none;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 24px rgba(19, 60, 55, 0.16);
+  }
+
+  .reply-workbench {
+    gap: 8px;
+  }
+
+  .free-reply-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .free-reply-form textarea {
+    min-height: 46px;
+    max-height: 96px;
+    padding: 10px;
+  }
+
+  .free-reply-form .primary-button {
+    min-width: 0;
+    height: 46px;
+    padding-inline: 16px;
+  }
+
+  /* 卡片回复在底部 dock 内横向滚动，避免占满屏幕 */
+  .reply-cards-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: start;
+    border: 1px solid rgba(70, 118, 110, 0.28);
+    border-radius: 999px;
+    background: rgba(247, 253, 249, 0.9);
+    padding: 6px 12px;
+    color: var(--text-strong);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .reply-cards-toggle-chevron {
+    transition: transform 180ms ease;
+  }
+
+  .reply-deck-cards-open .reply-cards-toggle-chevron {
+    transform: rotate(180deg);
+  }
+
+  /* 默认折叠卡片，仅展开时显示 */
+  .reply-grid {
+    display: none;
+  }
+
+  .reply-deck-cards-open .reply-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 70%);
+    grid-template-columns: none;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x mandatory;
+  }
+
+  .reply-card {
+    scroll-snap-align: start;
+    min-height: 64px;
   }
 }
 
