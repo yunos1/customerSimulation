@@ -1,4 +1,4 @@
-import { requestCustomerReaction } from "./shared/customerReaction";
+import { requestCustomerReaction, requestCustomerReactionStream } from "./shared/customerReaction";
 export { SnakeRoom } from "./snake-room";
 
 interface Env {
@@ -270,15 +270,52 @@ async function handleCustomerReaction(request: Request, env: Env) {
   try {
     const raw = await request.text();
     if (raw.length > maxBodyBytes) return json({ error: "Request body too large" }, 413);
-    const body: unknown = JSON.parse(raw);
-    const line = await requestCustomerReaction(body, {
-      apiKey: env.AI_KEY, baseUrl: env.AI_BASE_URL, model: env.AI_MODEL,
-    });
+    const body = JSON.parse(raw) as { stream?: boolean };
+
+    const aiConfig = { apiKey: env.AI_KEY, baseUrl: env.AI_BASE_URL, model: env.AI_MODEL };
+
+    if (body && typeof body === "object" && body.stream) {
+      return streamCustomerReaction(body, aiConfig);
+    }
+
+    const line = await requestCustomerReaction(body, aiConfig);
     return json({ line });
   } catch (error) {
     console.warn("[customer-reaction-api]", error);
     return json({ error: "AI customer reply failed", detail: (error as Error).message }, 502);
   }
+}
+
+/** 把上游 token 流转成前端期望的 SSE：每行 `data: {"token":"..."}`，结尾 `data: [DONE]`。 */
+function streamCustomerReaction(
+  body: unknown,
+  config: { apiKey: string; baseUrl?: string; model?: string },
+) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const token of requestCustomerReactionStream(body, config)) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token })}\n\n`));
+        }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } catch (error) {
+        console.warn("[customer-reaction-api stream]", error);
+        // 让客户端走静态回退：直接结束流（无 token），不抛出 500。
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      Connection: "keep-alive",
+    },
+  });
 }
 
 // ── Snake handlers ────────────────────────────────────────────────────────────
