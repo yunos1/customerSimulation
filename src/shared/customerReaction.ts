@@ -34,7 +34,7 @@ export async function requestCustomerReaction(body: unknown, config: AiConfig) {
   });
 
   if (!response.ok) {
-    throw new Error(`AI request failed with ${response.status}`);
+    throw new Error(`AI request failed with ${response.status} via ${new URL(baseUrl).host}`);
   }
 
   const data = (await response.json()) as {
