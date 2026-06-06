@@ -2082,9 +2082,13 @@
 }
 
 .reply-grid {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.reply-deck-cards-open .reply-grid {
+  display: grid;
 }
 
 .reply-workbench {
@@ -2093,9 +2097,28 @@
   min-width: 0;
 }
 
-/* 折叠快捷回复的开关，仅在手机端显示 */
+/* 折叠快捷回复的开关 */
 .reply-cards-toggle {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  border: 1px solid rgba(70, 118, 110, 0.28);
+  border-radius: 999px;
+  background: rgba(247, 253, 249, 0.9);
+  padding: 6px 12px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reply-cards-toggle-chevron {
+  transition: transform 180ms ease;
+}
+
+.reply-deck-cards-open .reply-cards-toggle-chevron {
+  transform: rotate(180deg);
 }
 
 .free-reply-form {
@@ -5557,33 +5580,6 @@
   }
 
   /* 卡片回复在底部 dock 内横向滚动，避免占满屏幕 */
-  .reply-cards-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    justify-self: start;
-    border: 1px solid rgba(70, 118, 110, 0.28);
-    border-radius: 999px;
-    background: rgba(247, 253, 249, 0.9);
-    padding: 6px 12px;
-    color: var(--text-strong);
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .reply-cards-toggle-chevron {
-    transition: transform 180ms ease;
-  }
-
-  .reply-deck-cards-open .reply-cards-toggle-chevron {
-    transform: rotate(180deg);
-  }
-
-  /* 默认折叠卡片，仅展开时显示 */
-  .reply-grid {
-    display: none;
-  }
-
   .reply-deck-cards-open .reply-grid {
     display: grid;
     grid-auto-flow: column;

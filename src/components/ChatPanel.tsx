@@ -81,12 +81,12 @@ export const ChatPanel = memo(function ChatPanel({
             </div>
           </article>
         ))}
-        {streamingText && customer ? (
+        {streamingText !== undefined && customer ? (
           <article className="message message-customer message-streaming">
             <CustomerAvatar customer={customer} size="sm" />
             <div className="message-copy">
               <span className="message-speaker">客户</span>
-              <p>{streamingText}<span className="streaming-cursor" aria-hidden="true" /></p>
+              <p>{streamingText || "输入中"}<span className="streaming-cursor" aria-hidden="true" /></p>
             </div>
           </article>
         ) : null}

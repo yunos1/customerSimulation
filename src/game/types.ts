@@ -309,4 +309,5 @@ export type GameAction =
   | { type: "OPEN_TIMEOUT_ALERT"; sessionId: string }
   | { type: "CHOOSE_REPLY"; cardId: string; sessionId?: string; aiReactionLine?: string }
   | { type: "SUBMIT_FREE_REPLY"; text: string; sessionId?: string; aiReactionLine?: string }
+  | { type: "ADD_AGENT_MESSAGE"; text: string; sessionId: string }
   | { type: "RESTART_DAY"; level: LevelConfig; seed: number };

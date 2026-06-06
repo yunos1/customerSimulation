@@ -149,6 +149,13 @@ function runReducer(state: GameState, action: GameAction): GameState {
     case "SUBMIT_FREE_REPLY":
       return submitFreeReply(state, action.text, action.sessionId, action.aiReactionLine);
 
+    case "ADD_AGENT_MESSAGE": {
+      const session = getSessionById(state, action.sessionId);
+      if (!session) return state;
+      const nextSession = { ...session, messages: trimSessionMessages([...session.messages, createMessage("agent", action.text)]) };
+      return { ...state, sessions: replaceSession(state.sessions, nextSession) };
+    }
+
     case "RESTART_DAY":
       // 重试当前天：由调用方传入要重置到的 level（不再硬编码 activeDay）。
       // createInitialState 内部会重置 scratch 计数器。

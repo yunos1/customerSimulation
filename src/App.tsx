@@ -14,7 +14,7 @@ import { createInitialState, gameReducer, getActiveSession } from "./game/reduce
 import { getModeProgress, type ModeProgress } from "./game/meta";
 import { setSimulatorFavicon } from "./hooks/useFavicon";
 import { useMetaProgress } from "./hooks/useMetaProgress";
-import type { UnlockableCard } from "./game/types";
+import type { UnlockableCard, ReplyCard } from "./game/types";
 import { ChatPanel } from "./components/ChatPanel";
 import { AchievementsPanel } from "./components/AchievementsPanel";
 import { CareerMap } from "./components/CareerMap";
@@ -270,7 +270,10 @@ export default function App() {
 
       const sessionId = session.id;
       const runId = s.runId;
+      const card = s.level.replyCards.find((c: ReplyCard) => c.id === cardId);
+      if (card) dispatch({ type: "ADD_AGENT_MESSAGE", text: card.title, sessionId });
       setPendingReplySessionId(sessionId);
+      setStreamingText("");
       void requestAiCustomerReplyStream(s, session, { kind: "card", cardId }, (partial) => {
         setStreamingText(partial);
       })
@@ -297,7 +300,9 @@ export default function App() {
 
       const sessionId = session.id;
       const runId = s.runId;
+      dispatch({ type: "ADD_AGENT_MESSAGE", text, sessionId });
       setPendingReplySessionId(sessionId);
+      setStreamingText("");
       void requestAiCustomerReplyStream(s, session, { kind: "free", text }, (partial) => {
         setStreamingText(partial);
       })
