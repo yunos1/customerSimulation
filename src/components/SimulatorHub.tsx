@@ -124,7 +124,7 @@ export function SimulatorHub({
             <Boxes size={18} aria-hidden="true" />
             模拟器盒子
           </p>
-          <h1 id="hub-title">把人间风雨，收进一只盒</h1>
+          <h1 id="hub-title">冤神 启动！</h1>
           <p className="hub-hero-lede">
             从客服席位启程，穿过门店、诊室与面试间的灯火；厂房的轰鸣在下一格等待亮起。
           </p>
