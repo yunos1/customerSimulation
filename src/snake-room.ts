@@ -20,7 +20,14 @@ const BORDER_WARN = 50;         // 距边界多少格开始警告
 const SAVE_INTERVAL_TICKS = 50; // 每多少 tick 保存一次存活玩家分数（约 10s）
 const FOOD_BUCKET = 25;         // 食物空间网格 bucket 边长（格），用于邻近查询
 
-const FOOD_VALUES = [1,1,1,1,2,2,2,3,3,5]; // 随机权重，总10种映射20种食物
+// ── 食物分层（须与客户端 skins.ts 的 type 偏移一致）──────────────────────────
+// tier 0 基础: type 0-13 (14)  | tier 1 中级: type 14-19 (6) | tier 2 高级: type 20-25 (6)
+const FOOD_TIERS = [
+  { offset: 0,  count: 14, values: [1, 1, 1, 2, 2],  weight: 82 }, // 基础
+  { offset: 14, count: 6,  values: [3, 4, 5],         weight: 14 }, // 中级
+  { offset: 20, count: 6,  values: [8, 10, 15],       weight: 4  }, // 高级
+];
+const FOOD_WEIGHT_TOTAL = FOOD_TIERS.reduce((s, t) => s + t.weight, 0);
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -43,8 +50,9 @@ interface Snake {
 interface Food {
   x: number;
   y: number;
-  type: number; // 0-19
+  type: number; // 0-25，全局 emoji 索引
   value: number;
+  tier: number; // 0 基础 / 1 中级 / 2 高级，客户端据此渲染动效
 }
 
 interface GameState {
@@ -248,7 +256,7 @@ export class SnakeRoom {
     // 全身变食物（取整到格，保证 O(1) 邻近查询能命中）
     for (const seg of snake.body) {
       const x = Math.round(seg.x), y = Math.round(seg.y);
-      this.addFood(x, y, rand(20), 1);
+      this.addFood(x, y, rand(14), 1, 0); // 尸体掉落基础食物（tier 0）
     }
     snake.body = [];
 
@@ -283,8 +291,8 @@ export class SnakeRoom {
     const x = rand(MAP_SIZE);
     const y = rand(MAP_SIZE);
     if (this.game.foods.has(`${x},${y}`)) return;
-    const vi = rand(FOOD_VALUES.length);
-    this.addFood(x, y, rand(20), FOOD_VALUES[vi]);
+    const { type, value, tier } = rollFood();
+    this.addFood(x, y, type, value, tier);
   }
 
   // ── 食物 + 空间网格索引 ──────────────────────────────────────────────────────
@@ -294,10 +302,10 @@ export class SnakeRoom {
     return `${Math.floor(x / FOOD_BUCKET)},${Math.floor(y / FOOD_BUCKET)}`;
   }
 
-  private addFood(x: number, y: number, type: number, value: number) {
+  private addFood(x: number, y: number, type: number, value: number, tier: number) {
     const key = `${x},${y}`;
     if (this.game.foods.has(key)) return;
-    this.game.foods.set(key, { x, y, type, value });
+    this.game.foods.set(key, { x, y, type, value, tier });
     const bk = SnakeRoom.bucketKey(x, y);
     let bucket = this.game.foodGrid.get(bk);
     if (!bucket) { bucket = new Set(); this.game.foodGrid.set(bk, bucket); }
@@ -468,3 +476,17 @@ export class SnakeRoom {
 }
 
 function rand(n: number) { return Math.floor(Math.random() * n); }
+
+// 按权重抽取食物等级，再在该 tier 内随机 emoji 与分值
+function rollFood(): { type: number; value: number; tier: number } {
+  let r = rand(FOOD_WEIGHT_TOTAL);
+  let tier = 0;
+  for (let i = 0; i < FOOD_TIERS.length; i++) {
+    if (r < FOOD_TIERS[i].weight) { tier = i; break; }
+    r -= FOOD_TIERS[i].weight;
+  }
+  const def = FOOD_TIERS[tier];
+  const type = def.offset + rand(def.count);
+  const value = def.values[rand(def.values.length)];
+  return { type, value, tier };
+}

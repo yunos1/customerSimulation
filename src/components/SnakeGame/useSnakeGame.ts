@@ -7,7 +7,7 @@ export interface SnakeInfo {
   skinId: number; body: Vec2[]; angle: number;
   alive: boolean; score: number; kills: number; respawnAt: number;
 }
-export interface FoodInfo { x: number; y: number; type: number; value: number }
+export interface FoodInfo { x: number; y: number; type: number; value: number; tier: number }
 export interface LeaderEntry { id: string; username: string; score: number; kills: number }
 
 export interface GameSnapshot {

@@ -21,14 +21,46 @@ export const SKINS: SkinDef[] = [
   { name: "像素复古", head: "#4ade80", body: ["#4ade80", "#166534", "#4ade80", "#166534"] },
 ];
 
-// 20 种食物 emoji
-export const FOODS = [
-  "🍎","🍓","🍇","🍉","🥭","🍋","🍒","🍑","🫐","🥝",
-  "🍕","🍔","🍣","🍜","🍦","🎂","💎","🪙","⭐","⚡",
+// ── 食物分层 ──────────────────────────────────────────────────────────────────
+// tier 0 基础（静态）、tier 1 中级（呼吸浮动）、tier 2 高级（旋转光环强发光）
+// type 仍为全局 emoji 索引，FOODS 顺序按 tier 连续排列，便于客户端按 type 取图。
+
+export interface FoodTierDef {
+  emojis: string[];   // 该 tier 的 emoji
+  values: number[];   // 对应分值（随机权重池）
+  glow: string;       // 动效发光色
+}
+
+export const FOOD_TIERS: FoodTierDef[] = [
+  // tier 0 基础：水果 / 常见食物，分值低，无动效
+  {
+    emojis: ["🍎","🍓","🍇","🍉","🥭","🍋","🍒","🍑","🫐","🥝","🍕","🍔","🍣","🍜"],
+    values: [1, 1, 1, 2, 2],
+    glow: "#7cffa0",
+  },
+  // tier 1 中级：甜点 / 钱币，分值中等，呼吸 + 上下浮动
+  {
+    emojis: ["🍦","🎂","🍩","🧁","🍰","🪙"],
+    values: [3, 4, 5],
+    glow: "#ffd700",
+  },
+  // tier 2 高级：稀有珍宝，分值高，旋转 + 光环 + 强发光
+  {
+    emojis: ["💎","👑","⭐","⚡","🔥","🌟"],
+    values: [8, 10, 15],
+    glow: "#00f5ff",
+  },
 ];
 
-// 食物对应分值（index 对应 FOODS）
-export const FOOD_VALUES = [
-  1,1,1,1,2, 1,1,1,2,2,
-  2,2,3,2,2, 3,5,5,3,4,
-];
+// 扁平化 emoji 列表（type = 全局索引），以及 type -> tier 映射表
+export const FOODS: string[] = FOOD_TIERS.flatMap((t) => t.emojis);
+
+export const FOOD_TYPE_TIER: number[] = FOOD_TIERS.flatMap((t, ti) => t.emojis.map(() => ti));
+
+// 每个 tier 在全局 FOODS 中的起始 type 索引
+export const FOOD_TIER_OFFSET: number[] = (() => {
+  const offsets: number[] = [];
+  let acc = 0;
+  for (const t of FOOD_TIERS) { offsets.push(acc); acc += t.emojis.length; }
+  return offsets;
+})();

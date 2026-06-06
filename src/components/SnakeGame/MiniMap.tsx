@@ -36,9 +36,12 @@ export function MiniMap({ snapshot, mapSize, playerId, isDead }: Props) {
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, 0, size, size);
 
-    ctx.fillStyle = "rgba(100,255,100,0.5)";
+    const FOOD_DOT = ["rgba(100,255,100,0.5)", "#ffd700", "#00f5ff"];
     for (const food of snapshot.foods) {
-      ctx.fillRect(food.x * scale, food.y * scale, expanded ? 2.5 : 1.5, expanded ? 2.5 : 1.5);
+      const tier = food.tier ?? 0;
+      ctx.fillStyle = FOOD_DOT[tier] ?? FOOD_DOT[0];
+      const s = tier === 2 ? (expanded ? 4 : 2.5) : tier === 1 ? (expanded ? 3 : 2) : (expanded ? 2.5 : 1.5);
+      ctx.fillRect(food.x * scale, food.y * scale, s, s);
     }
 
     for (const snake of snapshot.snakes) {

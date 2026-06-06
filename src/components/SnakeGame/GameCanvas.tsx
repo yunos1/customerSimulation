@@ -116,14 +116,65 @@ export function GameCanvas({ snapshotRef, prevSnapshotRef, snapshotTimeRef, tick
     ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
     ctx.restore();
 
-    // 食物：直接用世界坐标裁剪，跳过视口外的
-    ctx.font = `${CELL - 2}px serif`;
+    // 食物：直接用世界坐标裁剪，跳过视口外的。tier 1/2 带动效。
+    const now = performance.now();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const food of snapshot.foods) {
       if (food.x < vx0 - PAD || food.x > vxMax + PAD || food.y < vy0 - PAD || food.y > vyMax + PAD) continue;
-      ctx.fillText(FOODS[food.type % 20], (food.x - vx0) * CELL + CELL / 2, (food.y - vy0) * CELL + CELL / 2);
+      const px = (food.x - vx0) * CELL + CELL / 2;
+      const py = (food.y - vy0) * CELL + CELL / 2;
+      const glyph = FOODS[food.type % FOODS.length];
+      const tier = food.tier ?? 0;
+
+      if (tier === 0) {
+        // 基础：静态
+        ctx.font = `${CELL - 2}px serif`;
+        ctx.fillText(glyph, px, py);
+        continue;
+      }
+
+      // 每个食物按坐标错相位，避免整屏同步闪动
+      const phase = (food.x * 12.9898 + food.y * 78.233) % (Math.PI * 2);
+
+      if (tier === 1) {
+        // 中级：呼吸缩放 + 上下浮动 + 金色光晕
+        const t = now / 1000;
+        const scale = 1.12 + Math.sin(t * 3 + phase) * 0.12;
+        const bob = Math.sin(t * 2.2 + phase) * 2.5;
+        ctx.save();
+        ctx.translate(px, py + bob);
+        ctx.scale(scale, scale);
+        ctx.shadowColor = "#ffd700";
+        ctx.shadowBlur = 14;
+        ctx.font = `${CELL - 2}px serif`;
+        ctx.fillText(glyph, 0, 0);
+        ctx.restore();
+      } else {
+        // 高级：旋转 + 脉冲光环 + 强发光
+        const t = now / 1000;
+        const rot = (t * 1.6 + phase) % (Math.PI * 2);
+        const pulse = 0.5 + Math.sin(t * 4 + phase) * 0.5; // 0-1
+        ctx.save();
+        ctx.translate(px, py);
+        // 光环
+        ctx.beginPath();
+        ctx.arc(0, 0, CELL * (0.62 + pulse * 0.18), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0,245,255,${0.25 + pulse * 0.45})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 16;
+        ctx.stroke();
+        // 旋转的 emoji 本体
+        ctx.rotate(rot);
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 20;
+        ctx.font = `${CELL + 2}px serif`;
+        ctx.fillText(glyph, 0, 0);
+        ctx.restore();
+      }
     }
+    ctx.shadowBlur = 0;
 
     // 蛇
     const R = CELL * 0.44; // 略微缩小蛇身（原 CELL/2）
