@@ -117,7 +117,6 @@ export function SimulatorHub({
 
   const cards = [
     supportCard,
-    slackerCard,
     shiftRosterCard,
     clinicTriageCard,
     interviewCard,
