@@ -13,7 +13,7 @@ interface Props {
 
 export function SnakeGame({ token, onBackToHub }: Props) {
   const {
-    snapshot, bufferRef, tickMsRef,
+    snapshot, tickMsRef, subscribeSnapshot,
     connected, mapSize, playerId, steer, leave,
   } = useSnakeGame(token);
 
@@ -49,10 +49,10 @@ export function SnakeGame({ token, onBackToHub }: Props) {
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", background: "#0a0e1a", overflow: "hidden" }}>
       <GameCanvas
-        bufferRef={bufferRef}
         tickMsRef={tickMsRef}
         mapSize={mapSize}
         playerId={playerId}
+        subscribeSnapshot={subscribeSnapshot}
       />
       <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={snapshot?.snakes.find(s => s.id === playerId)?.alive === false} />
       <GameHUD snapshot={snapshot} playerId={playerId} onBackToHub={handleBack} />

@@ -1,4 +1,9 @@
-import { requestCustomerReaction, requestCustomerReactionStream } from "./shared/customerReaction";
+import {
+  requestCustomerReaction,
+  requestCustomerReactionStream,
+  requestCustomerReactionWithAssessment,
+  requestCustomerReactionWithAssessmentStream,
+} from "./shared/customerReaction";
 export { SnakeRoom } from "./snake-room";
 
 interface Env {
@@ -270,15 +275,23 @@ async function handleCustomerReaction(request: Request, env: Env) {
   try {
     const raw = await request.text();
     if (raw.length > maxBodyBytes) return json({ error: "Request body too large" }, 413);
-    const body = JSON.parse(raw) as { stream?: boolean };
+    const body = JSON.parse(raw) as { stream?: boolean; assessment?: boolean };
 
     const aiConfig = { apiKey: env.AI_KEY, baseUrl: env.AI_BASE_URL, model: env.AI_MODEL };
+    const bodyForAi = body && typeof body === "object"
+      ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== "stream" && key !== "assessment"))
+      : body;
 
     if (body && typeof body === "object" && body.stream) {
-      return streamCustomerReaction(body, aiConfig);
+      return streamCustomerReaction(bodyForAi, aiConfig, body.assessment === true);
     }
 
-    const line = await requestCustomerReaction(body, aiConfig);
+    if (body && typeof body === "object" && body.assessment) {
+      const result = await requestCustomerReactionWithAssessment(bodyForAi, aiConfig);
+      return json(result);
+    }
+
+    const line = await requestCustomerReaction(bodyForAi, aiConfig);
     return json({ line });
   } catch (error) {
     console.warn("[customer-reaction-api]", error);
@@ -290,13 +303,20 @@ async function handleCustomerReaction(request: Request, env: Env) {
 function streamCustomerReaction(
   body: unknown,
   config: { apiKey: string; baseUrl?: string; model?: string },
+  includeAssessment = false,
 ) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const token of requestCustomerReactionStream(body, config)) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token })}\n\n`));
+        if (includeAssessment) {
+          for await (const event of requestCustomerReactionWithAssessmentStream(body, config)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          }
+        } else {
+          for await (const token of requestCustomerReactionStream(body, config)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token })}\n\n`));
+          }
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (error) {

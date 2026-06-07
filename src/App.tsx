@@ -277,10 +277,16 @@ export default function App() {
       void requestAiCustomerReplyStream(s, session, { kind: "card", cardId }, (partial) => {
         setStreamingText(partial);
       })
-        .then((aiReactionLine) => {
+        .then((aiReply) => {
           if (stateRef.current.runId !== runId) return;
           setStreamingText(undefined);
-          dispatch({ type: "CHOOSE_REPLY", cardId, sessionId, aiReactionLine });
+          dispatch({
+            type: "CHOOSE_REPLY",
+            cardId,
+            sessionId,
+            aiReactionLine: aiReply?.line,
+            aiAssessment: aiReply?.assessment,
+          });
         })
         .finally(() => {
           setStreamingText(undefined);
@@ -306,10 +312,16 @@ export default function App() {
       void requestAiCustomerReplyStream(s, session, { kind: "free", text }, (partial) => {
         setStreamingText(partial);
       })
-        .then((aiReactionLine) => {
+        .then((aiReply) => {
           if (stateRef.current.runId !== runId) return;
           setStreamingText(undefined);
-          dispatch({ type: "SUBMIT_FREE_REPLY", text, sessionId, aiReactionLine });
+          dispatch({
+            type: "SUBMIT_FREE_REPLY",
+            text,
+            sessionId,
+            aiReactionLine: aiReply?.line,
+            aiAssessment: aiReply?.assessment,
+          });
         })
         .finally(() => {
           setStreamingText(undefined);

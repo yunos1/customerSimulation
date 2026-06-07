@@ -1,7 +1,7 @@
 import { getUnlockedAchievements } from "../content/achievements";
 import { difficultyPresets, fatigue as fatigueCfg, holiday as holidayCfg, sessionTiming } from "./balance";
 import { buildRandomizedCustomers } from "./customerGenerator";
-import { buildFreeReplyCard } from "./freeReply";
+import { buildAssessedReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
 import { getReactionLine } from "./reactions";
 import {
@@ -23,6 +23,7 @@ import type {
   GameState,
   LevelConfig,
   Metrics,
+  ReplyAssessment,
   ReplyCard,
 } from "./types";
 
@@ -144,10 +145,10 @@ function runReducer(state: GameState, action: GameAction): GameState {
       return openTimeoutAlert(state, action.sessionId);
 
     case "CHOOSE_REPLY":
-      return chooseReply(state, action.cardId, action.sessionId, action.aiReactionLine);
+      return chooseReply(state, action.cardId, action.sessionId, action.aiReactionLine, action.aiAssessment);
 
     case "SUBMIT_FREE_REPLY":
-      return submitFreeReply(state, action.text, action.sessionId, action.aiReactionLine);
+      return submitFreeReply(state, action.text, action.sessionId, action.aiReactionLine, action.aiAssessment);
 
     case "ADD_AGENT_MESSAGE": {
       const session = getSessionById(state, action.sessionId);
@@ -330,6 +331,7 @@ function chooseReply(
   cardId: string,
   sessionId?: string,
   aiReactionLine?: string,
+  aiAssessment?: ReplyAssessment,
 ): GameState {
   if (state.phase !== "player_reply") {
     return state;
@@ -347,7 +349,7 @@ function chooseReply(
     return state;
   }
 
-  return answerSession(state, session, card, false, aiReactionLine);
+  return answerSession(state, session, card, false, aiReactionLine, aiAssessment);
 }
 
 function submitFreeReply(
@@ -355,6 +357,7 @@ function submitFreeReply(
   text: string,
   sessionId?: string,
   aiReactionLine?: string,
+  aiAssessment?: ReplyAssessment,
 ): GameState {
   if (state.phase !== "player_reply") {
     return state;
@@ -367,7 +370,14 @@ function submitFreeReply(
     return state;
   }
 
-  return answerSession(state, session, buildFreeReplyCard(trimmedText), true, aiReactionLine);
+  return answerSession(
+    state,
+    session,
+    buildAssessedReplyCard(trimmedText, aiAssessment),
+    true,
+    aiReactionLine,
+    aiAssessment,
+  );
 }
 
 function answerSession(
@@ -376,6 +386,7 @@ function answerSession(
   card: ReplyCard,
   isFreeReply: boolean,
   aiReactionLine?: string,
+  aiAssessment?: ReplyAssessment,
 ): GameState {
   const round = getActiveRound(session.customer, session.activeRoundIndex);
   const nextRoundIndex = session.activeRoundIndex + 1;
@@ -388,6 +399,7 @@ function answerSession(
     previousReply: getPreviousReply(session),
     templateUseCount: state.coachingStats.templateUseCount,
     recentTimingRiskNotes: state.coachingStats.recentTimingRiskNotes,
+    aiAssessment,
   });
   const nextSessionMetrics = applySessionDelta(
     session.metrics,

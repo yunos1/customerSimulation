@@ -37,6 +37,7 @@ export interface GameSnapshot {
 // render-behind 缓冲保留最近 N 帧，渲染时刻回退 ~1.5 tick，永远落在两帧之间插值
 const BUFFER_SIZE = 6;
 const SNAPSHOT_STATE_INTERVAL_MS = 200;
+type SnapshotListener = (snapshot: GameSnapshot) => void;
 
 export function useSnakeGame(token: string | null) {
   // bufferRef：最近若干帧快照（按到达顺序，末尾最新），供 GameCanvas 渲染回放。
@@ -50,6 +51,7 @@ export function useSnakeGame(token: string | null) {
   const [mapSize, setMapSize] = useState(1000);
   const wsRef = useRef<WebSocket | null>(null);
   const playerIdRef = useRef<string>("");
+  const listenersRef = useRef(new Set<SnapshotListener>());
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -81,6 +83,7 @@ export function useSnakeGame(token: string | null) {
         const buf = bufferRef.current;
         buf.push(snap);
         if (buf.length > BUFFER_SIZE) buf.shift();
+        for (const listener of listenersRef.current) listener(snap);
         if (now - lastStateUpdateRef.current >= SNAPSHOT_STATE_INTERVAL_MS) {
           lastStateUpdateRef.current = now;
           setSnapshot(snap);
@@ -100,8 +103,14 @@ export function useSnakeGame(token: string | null) {
     try { wsRef.current?.send(JSON.stringify({ type: "leave" })); } catch { /* closed */ }
   }, []);
 
+  const subscribeSnapshot = useCallback((listener: SnapshotListener) => {
+    listenersRef.current.add(listener);
+    for (const snap of bufferRef.current) listener(snap);
+    return () => listenersRef.current.delete(listener);
+  }, []);
+
   return {
-    snapshot, bufferRef, tickMsRef,
+    snapshot, bufferRef, tickMsRef, subscribeSnapshot,
     connected, mapSize, playerId: playerIdRef.current, steer, leave,
   };
 }

@@ -169,7 +169,16 @@ export interface ReplyFeedback {
   reactionKind: ReplyReactionKind;
   comboNotes: string[];
   timingRiskNotes: string[];
+  semanticNotes: string[];
   message: string;
+}
+
+export interface ReplyAssessment {
+  tags: ToneTag[];
+  effectAdjustments?: MetricDelta;
+  reactionKind?: ReplyReactionKind;
+  coachingNote?: string;
+  confidence?: number;
 }
 
 export interface CustomerOutcome {
@@ -307,7 +316,19 @@ export type GameAction =
   | { type: "TICK"; seed: number }
   | { type: "SELECT_SESSION"; sessionId: string }
   | { type: "OPEN_TIMEOUT_ALERT"; sessionId: string }
-  | { type: "CHOOSE_REPLY"; cardId: string; sessionId?: string; aiReactionLine?: string }
-  | { type: "SUBMIT_FREE_REPLY"; text: string; sessionId?: string; aiReactionLine?: string }
+  | {
+      type: "CHOOSE_REPLY";
+      cardId: string;
+      sessionId?: string;
+      aiReactionLine?: string;
+      aiAssessment?: ReplyAssessment;
+    }
+  | {
+      type: "SUBMIT_FREE_REPLY";
+      text: string;
+      sessionId?: string;
+      aiReactionLine?: string;
+      aiAssessment?: ReplyAssessment;
+    }
   | { type: "ADD_AGENT_MESSAGE"; text: string; sessionId: string }
   | { type: "RESTART_DAY"; level: LevelConfig; seed: number };

@@ -11,6 +11,7 @@ import type {
   DaySummary,
   MetricDelta,
   Metrics,
+  ReplyAssessment,
   ReplyFeedback,
   ReplyCard,
   ReplyMemory,
@@ -62,6 +63,7 @@ type ReplyScoringContext = {
   templateUseCount: number;
   /** 最近 N 回合已展示过的 timingRiskNotes，用于去重（同一提示 3 回合内不重复推送）。 */
   recentTimingRiskNotes?: string[];
+  aiAssessment?: ReplyAssessment;
 };
 
 type ReplyModifier = {
@@ -111,12 +113,14 @@ export function scoreReply(
     riskyHits * replyScoring.reactionRiskyWeight +
     customerModifier.reactionBias +
     sequenceModifier.reactionBias;
-  const reactionKind: ReplyReactionKind =
+  const fallbackReactionKind: ReplyReactionKind =
     reactionScore >= replyScoring.reactionSuccessAt
       ? "success"
       : reactionScore <= replyScoring.reactionFailureAt
         ? "failure"
         : "neutral";
+  const reactionKind = context.aiAssessment?.reactionKind ?? fallbackReactionKind;
+  const semanticNotes = getAssessmentNotes(context.aiAssessment);
   const feedback = buildReplyFeedback(
     card,
     round,
@@ -124,6 +128,7 @@ export function scoreReply(
     reactionKind,
     sequenceModifier.comboNotes,
     sequenceModifier.timingRiskNotes,
+    semanticNotes,
   );
 
   return { delta, reactionKind, feedback };
@@ -136,6 +141,7 @@ export function buildReplyFeedback(
   reactionKind: ReplyReactionKind,
   comboNotes: string[] = [],
   timingRiskNotes: string[] = [],
+  semanticNotes: string[] = [],
 ): ReplyFeedback {
   const matchedTags = getTagOverlap(card.tags, round.preferredTags);
   const riskyTags = card.tags.includes("pushback")
@@ -150,6 +156,7 @@ export function buildReplyFeedback(
     reactionKind,
     comboNotes,
     timingRiskNotes,
+    semanticNotes,
     message: buildFeedbackMessage(
       matchedTags,
       riskyTags,
@@ -157,6 +164,7 @@ export function buildReplyFeedback(
       reactionKind,
       comboNotes,
       timingRiskNotes,
+      semanticNotes,
     ),
   };
 }
@@ -299,6 +307,7 @@ function buildFeedbackMessage(
   reactionKind: ReplyReactionKind,
   comboNotes: string[],
   timingRiskNotes: string[],
+  semanticNotes: string[],
 ) {
   const matchedText =
     matchedTags.length > 0
@@ -310,8 +319,9 @@ function buildFeedbackMessage(
       : "没有踩到明显雷点";
   const metricText = formatMetricChanges(metricChanges);
   const sequenceText = formatSequenceNotes(comboNotes, timingRiskNotes);
+  const semanticText = formatSemanticNotes(semanticNotes);
 
-  return `接待复盘：${matchedText}；${riskyText}；${sequenceText}；${metricText}。${getReactionHint(reactionKind)}`;
+  return `接待复盘：${matchedText}；${riskyText}；${sequenceText}；${semanticText}；${metricText}。${getReactionHint(reactionKind)}`;
 }
 
 function getReactionHint(reactionKind: ReplyReactionKind) {
@@ -349,6 +359,30 @@ function formatSequenceNotes(comboNotes: string[], timingRiskNotes: string[]) {
   }
 
   return notes.join("；");
+}
+
+function formatSemanticNotes(semanticNotes: string[]) {
+  if (semanticNotes.length === 0) {
+    return "AI语义：按本地意图识别结算";
+  }
+
+  return `AI语义：${semanticNotes.join("；")}`;
+}
+
+function getAssessmentNotes(assessment?: ReplyAssessment) {
+  if (!assessment) return [];
+
+  const notes: string[] = [];
+
+  if (assessment.coachingNote) {
+    notes.push(assessment.coachingNote);
+  }
+
+  if (assessment.confidence !== undefined && assessment.confidence < 0.45) {
+    notes.push("这句表达偏含糊，客户可能只感到被安抚，未看到明确动作");
+  }
+
+  return notes.slice(0, 2);
 }
 
 function formatSignedMetric(metric: keyof Metrics, value: number) {

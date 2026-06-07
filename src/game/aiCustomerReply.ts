@@ -1,9 +1,9 @@
-import { buildFreeReplyCard } from "./freeReply";
+import { buildFreeReplyCard, normalizeReplyAssessment } from "./freeReply";
 import { getActiveRound } from "./customerFlow";
 import { scoreReply } from "./scoring";
-import type { CustomerSession, GameState, ReplyCard } from "./types";
+import type { CustomerSession, GameState, ReplyAssessment, ReplyCard } from "./types";
 
-const requestTimeoutMs = 9000;
+const requestTimeoutMs = 14000;
 
 export type PlayerReplyDraft =
   | { kind: "card"; cardId: string }
@@ -51,10 +51,16 @@ function buildRequestBody(
     reply: { text: card.title, tags: card.tags },
     reactionKind,
     history,
+    assessment: true,
     ...(nextConcern ? { nextConcern } : {}),
     ...(stream ? { stream: true } : {}),
   };
 }
+
+export type AiCustomerReplyResult = {
+  line?: string;
+  assessment?: ReplyAssessment;
+};
 
 export async function requestAiCustomerReply(
   state: GameState,
@@ -87,8 +93,7 @@ export async function requestAiCustomerReply(
     }
 
     const data: unknown = await response.json();
-    const line = readReactionLine(data);
-    return line;
+    return readReactionResult(data);
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       console.warn("[aiCustomerReply] request timed out");
@@ -110,7 +115,7 @@ export async function requestAiCustomerReplyStream(
   session: CustomerSession,
   draft: PlayerReplyDraft,
   onToken: (partial: string) => void,
-): Promise<string | undefined> {
+): Promise<AiCustomerReplyResult | undefined> {
   const card = resolveDraftCard(state, draft);
   if (!card) return undefined;
 
@@ -142,6 +147,7 @@ export async function requestAiCustomerReplyStream(
     const decoder = new TextDecoder();
     let buffer = "";
     let accumulated = "";
+    let resultAssessment: ReplyAssessment | undefined;
 
     try {
       while (true) {
@@ -159,10 +165,14 @@ export async function requestAiCustomerReplyStream(
           if (data === "[DONE]") break;
 
           try {
-            const parsed = JSON.parse(data) as { token?: string };
+            const parsed = JSON.parse(data) as { token?: string; assessment?: unknown };
             if (parsed.token) {
               accumulated += parsed.token;
               onToken(accumulated);
+            }
+            const assessment = normalizeReplyAssessment(parsed.assessment);
+            if (assessment) {
+              resultAssessment = assessment;
             }
           } catch {
             // 忽略解析失败的行
@@ -173,7 +183,16 @@ export async function requestAiCustomerReplyStream(
       reader.releaseLock();
     }
 
-    return accumulated.trim() || undefined;
+    const line = accumulated.trim();
+
+    if (!line && !resultAssessment) {
+      return undefined;
+    }
+
+    return {
+      ...(line ? { line } : {}),
+      ...(resultAssessment ? { assessment: resultAssessment } : {}),
+    };
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       console.warn("[aiCustomerReply] stream timed out");
@@ -194,8 +213,18 @@ function resolveDraftCard(state: GameState, draft: PlayerReplyDraft): ReplyCard 
   return state.level.replyCards.find((card) => card.id === draft.cardId);
 }
 
-function readReactionLine(data: unknown) {
+function readReactionResult(data: unknown): AiCustomerReplyResult | undefined {
   if (!data || typeof data !== "object" || !("line" in data)) return undefined;
+
   const line = (data as { line?: unknown }).line;
-  return typeof line === "string" && line.trim() ? line.trim() : undefined;
+  const assessment = normalizeReplyAssessment((data as { assessment?: unknown }).assessment);
+
+  if (typeof line !== "string" || !line.trim()) {
+    return assessment ? { assessment } : undefined;
+  }
+
+  return {
+    line: line.trim(),
+    ...(assessment ? { assessment } : {}),
+  };
 }

@@ -2,7 +2,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { requestCustomerReaction, requestCustomerReactionStream } from "./src/shared/customerReaction";
+import {
+  requestCustomerReaction,
+  requestCustomerReactionStream,
+  requestCustomerReactionWithAssessment,
+  requestCustomerReactionWithAssessmentStream,
+} from "./src/shared/customerReaction";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -66,23 +71,33 @@ function registerCustomerReactionRoute(
       // stream=true 时使用 SSE 流式输出
       const wantsStream = isRecord(body) && body.stream === true;
 
+      const wantsAssessment = isRecord(body) && body.assessment === true;
+      const bodyForAi = isRecord(body)
+        ? Object.fromEntries(Object.entries(body).filter(([k]) => k !== "stream" && k !== "assessment"))
+        : body;
+
       if (wantsStream) {
         response.statusCode = 200;
         response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
         response.setHeader("Cache-Control", "no-cache");
         response.setHeader("Connection", "keep-alive");
 
-        const bodyWithoutStream = isRecord(body)
-          ? Object.fromEntries(Object.entries(body).filter(([k]) => k !== "stream"))
-          : body;
-
-        for await (const token of requestCustomerReactionStream(bodyWithoutStream, aiConfig)) {
-          response.write(`data: ${JSON.stringify({ token })}\n\n`);
+        if (wantsAssessment) {
+          for await (const event of requestCustomerReactionWithAssessmentStream(bodyForAi, aiConfig)) {
+            response.write(`data: ${JSON.stringify(event)}\n\n`);
+          }
+        } else {
+          for await (const token of requestCustomerReactionStream(bodyForAi, aiConfig)) {
+            response.write(`data: ${JSON.stringify({ token })}\n\n`);
+          }
         }
         response.write("data: [DONE]\n\n");
         response.end();
+      } else if (wantsAssessment) {
+        const result = await requestCustomerReactionWithAssessment(bodyForAi, aiConfig);
+        sendJson(response, 200, result);
       } else {
-        const line = await requestCustomerReaction(body, aiConfig);
+        const line = await requestCustomerReaction(bodyForAi, aiConfig);
         sendJson(response, 200, { line });
       }
     } catch (error) {
