@@ -33,6 +33,12 @@ const BOT_WANDER_REACHED_DIST = 30;
 const BOT_WANDER_RETARGET_TICKS = 90;
 const BOT_FOOD_SCAN_RADIUS = 55;
 const BOT_HIGH_VALUE_FOOD_RADIUS = 130;
+const ACTIVE_BOOST_MIN_LENGTH = 8;
+const ACTIVE_BOOST_SCORE_COST = 2;
+const ACTIVE_BOOST_LENGTH_COST = 1;
+const ACTIVE_BOOST_DURATION_MS = 900;
+const ACTIVE_BOOST_BURN_INTERVAL_MS = 800;
+const ACTIVE_BOOST_SPEED_MUL = 1.6;
 
 // ── 食物分层 ──────────────────────────────────────────────────────────────────
 // tier 0 基础, tier 1 中级, tier 2 高级（含技能食物，但技能单独控制权重）
@@ -72,7 +78,7 @@ type ClientConnection = { ws: WebSocket; snakeId: string };
 
 interface SnakeEffects {
   boost?: number; slow?: number; shield?: number;
-  magnet?: number; double?: number; ghost?: number;
+  magnet?: number; double?: number; ghost?: number; activeBoost?: number;
 }
 
 interface Snake {
@@ -84,12 +90,15 @@ interface Snake {
   angle: number;
   alive: boolean;
   score: number;
+  bestScore: number;
   kills: number;
   respawnAt: number;
   joinedAt: number;
   isBot: boolean;
   effects: SnakeEffects;
   stepAccum: number; // 变速累加器（≥1 才真正移动一格）
+  boostHeld: boolean;
+  nextBoostBurnAt: number;
   sessionRecorded: boolean;
   botTarget?: Vec2;
   botTargetTick?: number;
@@ -209,6 +218,7 @@ export class SnakeRoom {
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
       if (snake.isBot) this.botSteer(snake);
+      this.updateActiveBoost(snake, now);
       this.moveSnake(snake, now);
     }
 
@@ -295,6 +305,7 @@ export class SnakeRoom {
   private moveSnake(snake: Snake, now: number) {
     let speedMul = 1;
     if (now < (snake.effects.boost ?? 0)) speedMul = 2;
+    else if (now < (snake.effects.activeBoost ?? 0)) speedMul = ACTIVE_BOOST_SPEED_MUL;
     else if (now < (snake.effects.slow ?? 0)) speedMul = 0.5;
 
     snake.stepAccum += speedMul;
@@ -313,6 +324,26 @@ export class SnakeRoom {
     }
   }
 
+  private updateActiveBoost(snake: Snake, now: number) {
+    if (!snake.boostHeld) return;
+    if (now < snake.nextBoostBurnAt) return;
+    if (now < (snake.effects.boost ?? 0)) {
+      snake.nextBoostBurnAt = now + TICK_MS;
+      return;
+    }
+    if (snake.body.length < ACTIVE_BOOST_MIN_LENGTH || snake.score < ACTIVE_BOOST_SCORE_COST) {
+      snake.boostHeld = false;
+      return;
+    }
+
+    snake.score = Math.max(0, snake.score - ACTIVE_BOOST_SCORE_COST);
+    for (let i = 0; i < ACTIVE_BOOST_LENGTH_COST && snake.body.length > INIT_LENGTH; i++) {
+      snake.body.pop();
+    }
+    snake.effects.activeBoost = now + ACTIVE_BOOST_DURATION_MS;
+    snake.nextBoostBurnAt = now + ACTIVE_BOOST_BURN_INTERVAL_MS;
+  }
+
   // ── 技能食物处理 ────────────────────────────────────────────────────────────
 
   private applyFood(snake: Snake, food: Food, key: string, now: number) {
@@ -323,6 +354,7 @@ export class SnakeRoom {
       // 普通食物
       const mul = now < (snake.effects.double ?? 0) ? 2 : 1;
       snake.score += food.value * mul;
+      snake.bestScore = Math.max(snake.bestScore, snake.score);
       snake.body.push({ ...snake.body[snake.body.length - 1] });
       return;
     }
@@ -527,6 +559,8 @@ export class SnakeRoom {
     snake.respawnAt = 0;
     snake.skinId = rand(SKIN_COUNT);
     snake.stepAccum = 0;
+    snake.boostHeld = false;
+    snake.nextBoostBurnAt = 0;
     snake.effects = {} as SnakeEffects;
     const pos = this.randomEmptyPos();
     snake.body = [];
@@ -545,9 +579,10 @@ export class SnakeRoom {
     this.game.snakes.set(id, {
       id, username, avatarUrl,
       skinId: rand(SKIN_COUNT), body, angle: 0,
-      alive: true, score: 0, kills: 0,
+      alive: true, score: 0, bestScore: 0, kills: 0,
       respawnAt: 0, joinedAt: Date.now(),
       isBot, effects: {} as SnakeEffects, stepAccum: 0,
+      boostHeld: false, nextBoostBurnAt: 0,
       sessionRecorded: false,
       botTarget: isBot ? this.randomBotTarget(pos) : undefined,
       botTargetTick: isBot ? this.game.tick : undefined,
@@ -626,7 +661,7 @@ export class SnakeRoom {
 
   // ── 消息处理 ────────────────────────────────────────────────────────────────
 
-  private handleMessage(clientId: string, id: string, msg: { type: string; angle?: number }) {
+  private handleMessage(clientId: string, id: string, msg: { type: string; angle?: number; active?: boolean }) {
     if (this.clients.get(clientId)?.snakeId !== id) return;
     const snake = this.game.snakes.get(id);
     if (!snake || snake.isBot) return;
@@ -637,6 +672,15 @@ export class SnakeRoom {
     if (!snake.alive) return;
     if (msg.type === "steer" && typeof msg.angle === "number") {
       snake.angle = ((msg.angle % 360) + 360) % 360;
+    } else if (msg.type === "boost") {
+      snake.boostHeld = msg.active === true;
+      if (snake.boostHeld && snake.nextBoostBurnAt < Date.now()) {
+        snake.nextBoostBurnAt = Date.now();
+      }
+      if (!snake.boostHeld) {
+        snake.nextBoostBurnAt = 0;
+        snake.effects.activeBoost = 0;
+      }
     }
   }
 
@@ -650,6 +694,7 @@ export class SnakeRoom {
     const snakeInfoFull = Array.from(this.game.snakes.values()).map((s) => ({
       id: s.id, username: s.username, avatarUrl: s.avatarUrl,
       skinId: s.skinId, body: s.body, angle: s.angle,
+      bodyLength: s.body.length,
       alive: s.alive, score: s.score, kills: s.kills, respawnAt: s.respawnAt,
       isBot: s.isBot,
       effects: activeEffects(s.effects, now),
@@ -713,7 +758,7 @@ export class SnakeRoom {
     const cy = snake?.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
     const snakes = Array.from(this.game.snakes.values()).map((s) => {
       if (!s.alive || !s.body.length) return s;
-      return this.clipSnakeBodyForView(s, id, cx, cy, VIEW_RADIUS);
+      return this.clipSnakeBodyForView({ ...s, bodyLength: s.body.length }, id, cx, cy, VIEW_RADIUS);
     });
     const foods = this.foodsInRange(cx, cy, VIEW_RADIUS);
     this.sendToClient(clientId, {
@@ -749,7 +794,7 @@ export class SnakeRoom {
   // ── 数据库 ──────────────────────────────────────────────────────────────────
 
   private async saveScore(snake: Snake, options: { recordSession?: boolean } = {}) {
-    if (snake.id.startsWith("guest_") || snake.id.startsWith("bot_") || snake.score === 0) return;
+    if (snake.id.startsWith("guest_") || snake.id.startsWith("bot_") || snake.bestScore === 0) return;
     const now = Math.floor(Date.now() / 1000);
     await this.env.DB.prepare(
       `INSERT INTO snake_scores (user_id, username, avatar_url, score, kills, skin_id, updated_at)
@@ -761,7 +806,7 @@ export class SnakeRoom {
          kills=MAX(kills, excluded.kills),
          skin_id=excluded.skin_id,
          updated_at=excluded.updated_at`
-    ).bind(snake.id, snake.username, snake.avatarUrl, snake.score, snake.kills, snake.skinId, now).run();
+    ).bind(snake.id, snake.username, snake.avatarUrl, snake.bestScore, snake.kills, snake.skinId, now).run();
 
     await this.env.DB.prepare(
       `DELETE FROM snake_scores WHERE user_id NOT IN (
@@ -773,7 +818,7 @@ export class SnakeRoom {
     const duration = Math.floor((Date.now() - snake.joinedAt) / 1000);
     await this.env.DB.prepare(
       `INSERT INTO snake_sessions (user_id, score, kills, duration_s, played_at) VALUES (?,?,?,?,?)`
-    ).bind(snake.id, snake.score, snake.kills, duration, now).run();
+    ).bind(snake.id, snake.bestScore, snake.kills, duration, now).run();
     snake.sessionRecorded = true;
   }
 

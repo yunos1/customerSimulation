@@ -162,6 +162,89 @@ describe("ADD_AGENT_MESSAGE", () => {
   });
 });
 
+describe("AI语义结算", () => {
+  it("客户明确接受复核方案时自由回复可提前判定已解决", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    expect(session).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "SUBMIT_FREE_REPLY",
+      sessionId: session!.id,
+      text: "好的，我给你补充复核时效，今天内发起退款复核并同步正式反馈。",
+      aiReactionLine: "行，有退款复核和正式反馈，我先等你们结果。",
+      aiAssessment: {
+        tags: ["refund_check", "investigate"],
+        reactionKind: "success",
+        effectAdjustments: { satisfaction: 4, anger: -4 },
+        coachingNote: "承接了复核诉求和反馈时间",
+        confidence: 0.9,
+      },
+    });
+
+    const updatedSession = state.sessions.find((candidate) => candidate.id === session!.id)!;
+
+    expect(updatedSession.status).toBe("resolved");
+    expect(updatedSession.outcome?.status).toBe("resolved");
+  });
+
+  it("客户仍在追问反馈时效时不会被提前结案", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    expect(session).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "SUBMIT_FREE_REPLY",
+      sessionId: session!.id,
+      text: "好的，我给你发起退款复核。",
+      aiReactionLine: "可以，但你得告诉我复核后多久有答复。",
+      aiAssessment: {
+        tags: ["refund_check", "investigate"],
+        reactionKind: "success",
+        effectAdjustments: { satisfaction: 4, anger: -4 },
+        coachingNote: "承接了复核诉求，但客户仍追问时效",
+        confidence: 0.9,
+      },
+    });
+
+    const updatedSession = state.sessions.find((candidate) => candidate.id === session!.id)!;
+
+    expect(updatedSession.status).toBe("active");
+    expect(updatedSession.outcome).toBeUndefined();
+  });
+
+  it("AI误贴pushback标签的普通短答不会触发硬刚结局", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    expect(session).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "SUBMIT_FREE_REPLY",
+      sessionId: session!.id,
+      text: "能的",
+      aiReactionLine: "可以，那你先给我走退款复核。",
+      aiAssessment: {
+        tags: ["pushback", "refund_check"],
+        reactionKind: "success",
+        effectAdjustments: { satisfaction: 4, anger: -4 },
+        coachingNote: "短答承诺继续处理",
+        confidence: 0.9,
+      },
+    });
+
+    const updatedSession = state.sessions.find((candidate) => candidate.id === session!.id)!;
+
+    expect(updatedSession.outcome?.status).not.toBe("rage_quit");
+    expect(state.achievementStats.rageQuitCount).toBe(0);
+  });
+});
+
 describe("收尾条件（间接验证 shouldSummarize）", () => {
   // 驱动一整天：反复 TICK 推进时间并接入客户，对每个活跃会话不断选回复直到结束。
   // 全部客户连接且无活跃会话后，phase 应转为 summary 并生成 summary。

@@ -170,7 +170,7 @@ export function buildAssessedReplyCard(text: string, assessment?: ReplyAssessmen
     return fallbackCard;
   }
 
-  const tags = normalizeToneTags(assessment.tags);
+  const tags = reconcileAssessedTags(normalizeToneTags(assessment.tags), fallbackCard.tags);
 
   if (tags.length === 0) {
     return fallbackCard;
@@ -301,6 +301,16 @@ function normalizeToneTags(tags: ToneTag[]): ToneTag[] {
   const concreteTags = sortedTags.filter((tag) => tag !== "template" || !hasConcreteIntent(sortedTags));
 
   return concreteTags.length > 0 ? concreteTags : ["template"];
+}
+
+function reconcileAssessedTags(assessmentTags: ToneTag[], fallbackTags: ToneTag[]): ToneTag[] {
+  const allowPushback = fallbackTags.includes("pushback");
+  const mergedTags = allowPushback
+    ? [...assessmentTags, "pushback" as const]
+    : assessmentTags.filter((tag) => tag !== "pushback");
+  const sortedTags = orderedToneTags.filter((tag) => mergedTags.includes(tag));
+
+  return sortedTags.filter((tag) => tag !== "template" || !hasConcreteIntent(sortedTags));
 }
 
 function sanitizeEffectAdjustments(value: unknown): MetricDelta {

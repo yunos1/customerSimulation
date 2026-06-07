@@ -89,7 +89,7 @@ function getSessionLine(session: CustomerSession) {
   }
 
   if (session.status === "failed") {
-    return "会话异常结束，已记录结果。";
+    return getFailedSessionLine(session.outcome?.status);
   }
 
   if (session.elapsedSeconds >= 120) {
@@ -97,6 +97,18 @@ function getSessionLine(session: CustomerSession) {
   }
 
   return `会话已进行 ${formatDuration(session.elapsedSeconds)}。`;
+}
+
+function getFailedSessionLine(status?: CustomerOutcome["status"]) {
+  if (status === "compliance_escalation") {
+    return "主管已介入，会话结束。";
+  }
+
+  if (status === "rage_quit") {
+    return "硬刚离席，会话结束。";
+  }
+
+  return "客户已提交投诉，会话结束。";
 }
 
 function formatDuration(totalSeconds: number) {

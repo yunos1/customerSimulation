@@ -12,6 +12,7 @@ const assessmentSystemPrompt =
   "必须严格输出JSON，不要Markdown，不要解释。JSON格式：" +
   "{\"line\":\"客户回应\",\"assessment\":{\"tags\":[\"apology|policy|refund_check|logistics|compensation|reject|supervisor|template|empathy|investigate|pushback\"],\"reactionKind\":\"success|neutral|failure\",\"effectAdjustments\":{\"satisfaction\":0,\"anger\":0,\"companyCost\":0,\"complianceRisk\":0,\"timeLeft\":0},\"coachingNote\":\"一句简短中文复盘\",\"confidence\":0.8}}。" +
   "tags要按语义判定，不要只看关键词；自然、具体、有下一步的回复不要判template。" +
+  "pushback只用于客服明确怼客户、让客户随便投诉、拒绝服务或人身攻击；普通短答、承诺复核和补充时效不要判pushback。" +
   "effectAdjustments只能小幅修正，单项范围-6到6；只在表达特别清楚或明显冒险时给值，否则给0。" +
   "line要贴合客户画像和reactionKind；如果输入带nextConcern，在同一段话里自然引出该新诉求。";
 

@@ -41,6 +41,29 @@ describe("buildAssessedReplyCard", () => {
     expect(card.effects.satisfaction).toBeGreaterThan(6);
     expect(card.effects.anger).toBeLessThan(-7);
   });
+
+  it("AI误判的pushback不会覆盖本地安全判断", () => {
+    const card = buildAssessedReplyCard("能的", {
+      tags: ["pushback", "refund_check"],
+      effectAdjustments: { satisfaction: 4, anger: -4 },
+      reactionKind: "success",
+      coachingNote: "短答承诺继续处理",
+      confidence: 0.8,
+    });
+
+    expect(card.tags).toContain("refund_check");
+    expect(card.tags).not.toContain("pushback");
+  });
+
+  it("明确怼客户的自由回复仍会保留pushback", () => {
+    const card = buildAssessedReplyCard("爱咋咋地，你去投诉吧。", {
+      tags: ["refund_check"],
+      reactionKind: "failure",
+      confidence: 0.8,
+    });
+
+    expect(card.tags).toContain("pushback");
+  });
 });
 
 describe("normalizeReplyAssessment", () => {

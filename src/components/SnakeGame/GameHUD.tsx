@@ -3,17 +3,43 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { SKILL_BY_KEY } from "./skins";
 import type { GameSnapshot, LeaderEntry } from "./useSnakeGame";
 
+const DESKTOP_LEADERBOARD_QUERY = "(min-width: 768px) and (hover: hover) and (pointer: fine)";
+const TOUCH_CONTROLS_QUERY = "(hover: none), (pointer: coarse)";
+const ACTIVE_BOOST_MIN_LENGTH = 8;
+const ACTIVE_BOOST_SCORE_COST = 2;
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
+}
+
 interface Props {
   snapshot: GameSnapshot | null;
   playerId: string;
   onBackToHub: () => void;
+  onBoostChange: (active: boolean) => void;
 }
 
-export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }: Props) {
+export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub, onBoostChange }: Props) {
   const [kills, setKills] = useState<string[]>([]);
+  const [boostHeld, setBoostHeld] = useState(false);
   const prevKillsRef = useRef(0);
   const prevLeaderIndexRef = useRef(-1);
   const leaderScrollRef = useRef<HTMLDivElement>(null);
+  const isDesktopLeaderboard = useMediaQuery(DESKTOP_LEADERBOARD_QUERY);
+  const showTouchBoost = useMediaQuery(TOUCH_CONTROLS_QUERY);
 
   const me = useMemo(() => snapshot?.snakes.find((s) => s.id === playerId), [snapshot, playerId]);
   const leaderboard: LeaderEntry[] = useMemo(() => snapshot?.leaderboard ?? [], [snapshot]);
@@ -40,6 +66,25 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }
   const respawnIn = me && !me.alive && me.respawnAt
     ? Math.max(0, Math.ceil((me.respawnAt - Date.now()) / 1000))
     : null;
+  const bodyLength = me?.bodyLength ?? me?.body.length ?? 0;
+  const canActiveBoost = !!me?.alive && bodyLength >= ACTIVE_BOOST_MIN_LENGTH && me.score >= ACTIVE_BOOST_SCORE_COST;
+  const isActiveBoosting = boostHeld || Date.now() < (me?.effects?.activeBoost ?? 0);
+
+  useEffect(() => {
+    if (canActiveBoost || !boostHeld) return;
+    setBoostHeld(false);
+    onBoostChange(false);
+  }, [boostHeld, canActiveBoost, onBoostChange]);
+
+  useEffect(() => {
+    return () => onBoostChange(false);
+  }, [onBoostChange]);
+
+  const setBoost = (active: boolean) => {
+    if (active && !canActiveBoost) return;
+    setBoostHeld(active);
+    onBoostChange(active);
+  };
 
   const activeBuffs = useMemo(() => {
     const effects = me?.effects ?? {};
@@ -71,23 +116,36 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }
 
       {/* 排行榜：固定高度约5条，可滚动到50 */}
       <div style={{
-        position: "absolute", top: 48, left: 12,
-        background: "rgba(0,0,0,0.65)", borderRadius: 8, padding: "8px 12px",
-        minWidth: 160, pointerEvents: "auto",
+        position: "absolute", top: isDesktopLeaderboard ? 56 : 48, left: isDesktopLeaderboard ? 20 : 12,
+        background: "rgba(0,0,0,0.65)", borderRadius: 8, padding: isDesktopLeaderboard ? "12px 16px" : "8px 12px",
+        minWidth: isDesktopLeaderboard ? 230 : 160, pointerEvents: "auto",
+        boxShadow: isDesktopLeaderboard ? "0 10px 28px rgba(0,0,0,0.28)" : undefined,
       }}>
-        <div style={{ color: "#ffd700", fontSize: 12, marginBottom: 6, fontWeight: "bold" }}>🏆 排行榜</div>
+        <div style={{
+          color: "#ffd700",
+          fontSize: isDesktopLeaderboard ? 15 : 12,
+          marginBottom: isDesktopLeaderboard ? 10 : 6,
+          fontWeight: "bold",
+        }}>🏆 排行榜</div>
         <div
           ref={leaderScrollRef}
-          style={{ maxHeight: 112, overflowY: "auto", scrollbarWidth: "thin" }}
+          style={{
+            maxHeight: isDesktopLeaderboard ? 250 : 112,
+            overflowY: "auto",
+            scrollbarWidth: "thin",
+          }}
         >
           {leaderboard.map((entry, i) => (
             <div key={entry.id} style={{
-              display: "flex", justifyContent: "space-between", gap: 12,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              gap: isDesktopLeaderboard ? 20 : 12,
               color: entry.id === playerId ? "#00f5ff" : entry.isBot ? "#888" : "#ddd",
-              fontSize: 12, marginBottom: 3,
+              fontSize: isDesktopLeaderboard ? 15 : 12,
+              marginBottom: isDesktopLeaderboard ? 6 : 3,
               fontWeight: entry.id === playerId ? "bold" : "normal",
+              lineHeight: isDesktopLeaderboard ? "20px" : undefined,
             }}>
-              <span>{i + 1}. {entry.isBot ? "🤖" : ""}{entry.username.slice(0, 8)}</span>
+              <span>{i + 1}. {entry.isBot ? "🤖" : ""}{entry.username.slice(0, isDesktopLeaderboard ? 12 : 8)}</span>
               <span>{entry.score}分</span>
             </div>
           ))}
@@ -112,7 +170,9 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }
           display: "flex", flexDirection: "column", gap: 4, pointerEvents: "none",
         }}>
           {activeBuffs.map((b) => {
-            const sk = SKILL_BY_KEY[b.key];
+            const sk = b.key === "activeBoost"
+              ? { emoji: "⚡", color: "#ffe600", label: "燃尾" }
+              : SKILL_BY_KEY[b.key];
             if (!sk) return null;
             return (
               <div key={b.key} style={{
@@ -127,6 +187,61 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }
             );
           })}
         </div>
+      )}
+
+      {showTouchBoost && (
+        <button
+          type="button"
+          aria-label="按住消耗尾巴加速"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setBoost(true);
+          }}
+          onPointerUp={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+            setBoost(false);
+          }}
+          onPointerCancel={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setBoost(false);
+          }}
+          onPointerLeave={(e) => {
+            e.stopPropagation();
+            setBoost(false);
+          }}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          style={{
+            position: "absolute",
+            right: 18,
+            bottom: 188,
+            width: 60,
+            height: 60,
+            borderRadius: "50%",
+            border: `1px solid ${canActiveBoost ? "rgba(255,230,0,0.75)" : "rgba(255,255,255,0.18)"}`,
+            background: isActiveBoosting
+              ? "rgba(255,230,0,0.24)"
+              : canActiveBoost
+                ? "rgba(0,0,0,0.68)"
+                : "rgba(0,0,0,0.36)",
+            boxShadow: isActiveBoosting ? "0 0 22px rgba(255,230,0,0.45)" : "0 8px 22px rgba(0,0,0,0.22)",
+            color: canActiveBoost ? "#ffe600" : "rgba(255,255,255,0.32)",
+            fontSize: 28,
+            lineHeight: "58px",
+            textAlign: "center",
+            pointerEvents: "auto",
+            touchAction: "none",
+            userSelect: "none",
+          }}
+        >
+          ⚡
+        </button>
       )}
 
       {/* 复活倒计时 */}
@@ -163,7 +278,7 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub }
         position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
         color: "rgba(255,255,255,0.4)", fontSize: 11, pointerEvents: "none", whiteSpace: "nowrap",
       }}>
-        键盘 WASD/方向键 控制 · 移动端滑动控制
+        WASD/方向键 控制 · 空格/⚡ 消耗尾巴加速
       </div>
     </>
   );

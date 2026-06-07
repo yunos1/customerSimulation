@@ -25,6 +25,7 @@ import type {
   Metrics,
   ReplyAssessment,
   ReplyCard,
+  ReplyReactionKind,
 } from "./types";
 
 const timeoutAlertSeconds = sessionTiming.timeoutAlertSeconds;
@@ -455,6 +456,12 @@ function answerSession(
     round,
     nextRoundIndex,
     nextOutcomeMetrics,
+    {
+      card,
+      isAiReactionLine: usedAiLine,
+      reactionKind,
+      reactionLine,
+    },
   );
   const baseMessages = trimSessionMessages([
     ...appendAgentMessage(session.messages, card.title, replyId),
@@ -713,18 +720,98 @@ function maybeBuildOutcome(
   round: CustomerRound,
   nextRoundIndex: number,
   metrics: Metrics,
+  resolutionContext?: {
+    card: ReplyCard;
+    isAiReactionLine: boolean;
+    reactionKind: ReplyReactionKind;
+    reactionLine: string;
+  },
 ) {
   if (
     metrics.anger >= 100 ||
     metrics.satisfaction <= 10 ||
-    metrics.complianceRisk >= 100 ||
-    shouldResolveCustomer(customer, round, nextRoundIndex, metrics.satisfaction, metrics.anger)
+    metrics.complianceRisk >= 100
+  ) {
+    return createOutcome(customer, metrics);
+  }
+
+  if (
+    shouldResolveCustomer(customer, round, nextRoundIndex, metrics.satisfaction, metrics.anger) ||
+    (resolutionContext &&
+      resolutionContext.isAiReactionLine &&
+      shouldAcceptResolutionFromReaction(
+        resolutionContext.card,
+        resolutionContext.reactionKind,
+        resolutionContext.reactionLine,
+      ))
   ) {
     return createOutcome(customer, metrics);
   }
 
   return undefined;
 }
+
+function shouldAcceptResolutionFromReaction(
+  card: ReplyCard,
+  reactionKind: ReplyReactionKind,
+  reactionLine: string,
+) {
+  if (reactionKind === "failure" || !hasResolutionIntent(card)) {
+    return false;
+  }
+
+  const normalizedLine = reactionLine.trim().replace(/\s+/g, "");
+
+  if (!normalizedLine || hasOpenConcern(normalizedLine)) {
+    return false;
+  }
+
+  return acceptancePatterns.some((pattern) => pattern.test(normalizedLine));
+}
+
+function hasResolutionIntent(card: ReplyCard) {
+  const resolutionTags: Array<ReplyCard["tags"][number]> = [
+    "refund_check",
+    "logistics",
+    "policy",
+    "compensation",
+    "reject",
+    "supervisor",
+  ];
+
+  return (
+    card.tags.some((tag) => resolutionTags.includes(tag)) ||
+    /工单|回访|复核|退款|退货|补发|主管|升级|方案|处理节点/.test(card.title)
+  );
+}
+
+function hasOpenConcern(line: string) {
+  return openConcernPatterns.some((pattern) => pattern.test(line));
+}
+
+const acceptancePatterns = [
+  /我(先|暂时|就)?接受/,
+  /可以.*(先等|等结果|等回访|等答复|等正式反馈|接受|不投诉)/,
+  /行.*(先等|等结果|等回访|等答复|等正式反馈|接受|不投诉|按.*(处理|推进|复核|流程|工单))/,
+  /好.*(先等|等结果|等回访|等答复|等正式反馈|接受|不投诉|按.*(处理|推进|复核|流程|工单))/,
+  /那就按.*(处理|推进|复核|流程|工单|方案)/,
+  /按.*(处理|推进|复核|流程|工单|方案).*来/,
+  /我(就|先|暂时)?等(你|你们|结果|回访|答复|正式反馈)/,
+  /等(你|你们)?(正式)?(反馈|答复|回访|结果)/,
+  /先这样/,
+  /(暂时|先)?不投诉/,
+  /保存.*(结论|记录)/,
+  /我先不上/,
+];
+
+const openConcernPatterns = [
+  /[？?]/,
+  /多久|多长时间|什么时候|何时/,
+  /能不能|可不可以|是不是|有没有|到底|怎么|什么|为什么|谁来|谁负责/,
+  /还(是)?想问|还要问|我还想/,
+  /但(是)?你(得|要|必须)|不过.*(想问|告诉我|说明)/,
+  /如果.*怎么办/,
+];
 
 function applySessionDelta(
   sessionMetrics: CustomerSession["metrics"],

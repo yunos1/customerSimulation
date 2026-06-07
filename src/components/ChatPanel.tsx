@@ -122,7 +122,7 @@ function getSessionStatusLabel(session: CustomerSession) {
   }
 
   if (session.status === "failed") {
-    return "已异常";
+    return getFailedStatusLabel(session);
   }
 
   if (session.elapsedSeconds >= 120) {
@@ -130,6 +130,18 @@ function getSessionStatusLabel(session: CustomerSession) {
   }
 
   return "待服务";
+}
+
+function getFailedStatusLabel(session: CustomerSession) {
+  if (session.outcome?.status === "compliance_escalation") {
+    return "主管介入";
+  }
+
+  if (session.outcome?.status === "rage_quit") {
+    return "硬刚离席";
+  }
+
+  return "客户投诉";
 }
 
 function formatDuration(totalSeconds: number) {

@@ -5,12 +5,12 @@ export interface Vec2 { x: number; y: number }
 // 生效中的 buff -> 到期时间戳（服务端 Date.now() 基准）。仅含尚未到期的。
 export interface SnakeEffects {
   boost?: number; slow?: number; shield?: number;
-  magnet?: number; double?: number; ghost?: number;
+  magnet?: number; double?: number; ghost?: number; activeBoost?: number;
 }
 export interface SnakeInfo {
   id: string; username: string; avatarUrl: string | null;
   skinId: number; body: Vec2[]; angle: number;
-  alive: boolean; score: number; kills: number; respawnAt: number;
+  alive: boolean; score: number; kills: number; respawnAt: number; bodyLength?: number;
   // 远处蛇为节省带宽只发蛇头：bodyHead=true 表示 body 仅含头部一节
   bodyHead?: boolean;
   // bodyPartial=true 表示服务端已按当前视野裁剪 body，仅含附近片段。
@@ -98,6 +98,10 @@ export function useSnakeGame(token: string | null) {
     wsRef.current?.send(JSON.stringify({ type: "steer", angle }));
   }, []);
 
+  const setBoosting = useCallback((active: boolean) => {
+    wsRef.current?.send(JSON.stringify({ type: "boost", active }));
+  }, []);
+
   // 主动离开：通知服务端保存分数（在断开前发送）
   const leave = useCallback(() => {
     try { wsRef.current?.send(JSON.stringify({ type: "leave" })); } catch { /* closed */ }
@@ -111,6 +115,6 @@ export function useSnakeGame(token: string | null) {
 
   return {
     snapshot, bufferRef, tickMsRef, subscribeSnapshot,
-    connected, mapSize, playerId: playerIdRef.current, steer, leave,
+    connected, mapSize, playerId: playerIdRef.current, steer, setBoosting, leave,
   };
 }

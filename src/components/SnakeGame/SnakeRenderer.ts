@@ -7,6 +7,7 @@ const LOW_DETAIL_MS = 1200;
 const RENDER_BEHIND_MS = 80;
 const MAX_LOCAL_PREDICT_MS = 130;
 const BUFFER_SIZE = 6;
+const CAMERA_SMOOTHING = 0.22;
 const EYE_SIDES = [1, -1] as const;
 
 type RenderCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -125,6 +126,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   const tmpPoint = { x: 0, y: 0 };
   let lowDetailUntil = 0;
   let mapSize = options.mapSize;
+  const camera = { x: mapSize / 2, y: mapSize / 2, ready: false };
   let playerId = options.playerId;
   let tickMs = options.tickMs || 200;
   let localSteerAngle = 0;
@@ -247,7 +249,13 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         if (snake.id !== playerId || ownPredictionMs <= 0) return 0;
         const effects = snake.effects ?? {};
         const wallNow = Date.now();
-        const speedMul = wallNow < (effects.boost ?? 0) ? 2 : wallNow < (effects.slow ?? 0) ? 0.5 : 1;
+        const speedMul = wallNow < (effects.boost ?? 0)
+          ? 2
+          : wallNow < (effects.activeBoost ?? 0)
+            ? 1.6
+            : wallNow < (effects.slow ?? 0)
+              ? 0.5
+              : 1;
         return (ownPredictionMs / Math.max(80, tickMs)) * speedMul;
       }
 
@@ -266,17 +274,25 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       const me = snapshot.snakes.find((snake) => snake.id === playerId);
-      let cx = mapSize / 2;
-      let cy = mapSize / 2;
+      let targetCx = mapSize / 2;
+      let targetCy = mapSize / 2;
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
         applyPrediction(me, tmpPoint, 0);
-        cx = tmpPoint.x;
-        cy = tmpPoint.y;
+        targetCx = tmpPoint.x;
+        targetCy = tmpPoint.y;
+      }
+      if (!camera.ready || Math.hypot(targetCx - camera.x, targetCy - camera.y) > 24) {
+        camera.x = targetCx;
+        camera.y = targetCy;
+        camera.ready = true;
+      } else {
+        camera.x += (targetCx - camera.x) * CAMERA_SMOOTHING;
+        camera.y += (targetCy - camera.y) * CAMERA_SMOOTHING;
       }
 
-      const vx0 = cx - W / 2 / CELL;
-      const vy0 = cy - H / 2 / CELL;
+      const vx0 = camera.x - W / 2 / CELL;
+      const vy0 = camera.y - H / 2 / CELL;
       const vxMax = vx0 + W / CELL;
       const vyMax = vy0 + H / CELL;
       const PAD = 2;
