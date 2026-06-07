@@ -6,6 +6,7 @@ const FRAME_BUDGET_MS = 18;
 const LOW_DETAIL_MS = 1200;
 const RENDER_BEHIND_MS = 80;
 const MAX_LOCAL_PREDICT_MS = 130;
+const MAX_EXTRAPOLATE_MS = 120;
 const BUFFER_SIZE = 6;
 const EYE_SIDES = [1, -1] as const;
 
@@ -165,15 +166,24 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const H = canvas.height;
       if (W <= 0 || H <= 0) return;
 
-      const renderT = performance.now() - RENDER_BEHIND_MS;
+      const renderT = frameStart - RENDER_BEHIND_MS;
       let from: GameSnapshot | null = null;
       let to: GameSnapshot | null = null;
-      for (let i = buffer.length - 1; i >= 0; i--) {
-        const snap = buffer[i];
-        if ((snap.arrivedAt ?? 0) <= renderT) {
-          from = snap;
-          to = buffer[i + 1] ?? snap;
-          break;
+      let extrapolatingLatest = false;
+      const latest = buffer[buffer.length - 1];
+
+      if (buffer.length >= 2 && renderT >= (latest.arrivedAt ?? 0)) {
+        from = buffer[buffer.length - 2];
+        to = latest;
+        extrapolatingLatest = true;
+      } else {
+        for (let i = buffer.length - 1; i >= 0; i--) {
+          const snap = buffer[i];
+          if ((snap.arrivedAt ?? 0) <= renderT) {
+            from = snap;
+            to = buffer[i + 1] ?? snap;
+            break;
+          }
         }
       }
       if (!from) {
@@ -183,13 +193,18 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (!to) to = from;
 
       const latestArrivedAt = to.arrivedAt ?? performance.now();
-      const ownPredictionMs = Math.min(
+      const localPendingMs = localSteerAt > latestArrivedAt ? Math.min(
         MAX_LOCAL_PREDICT_MS,
-        Math.max(0, Math.max(renderT - latestArrivedAt, localSteerAt - latestArrivedAt)),
-      );
+        Math.max(0, frameStart - localSteerAt),
+      ) : 0;
       const fromT = from.arrivedAt ?? 0;
       const toT = to.arrivedAt ?? fromT + tickMs;
-      const t = toT === fromT ? 1 : Math.max(0, Math.min(1, (renderT - fromT) / (toT - fromT)));
+      const tickSpan = Math.max(80, toT - fromT || tickMs);
+      const t = extrapolatingLatest
+        ? 1 + Math.min(MAX_EXTRAPOLATE_MS, Math.max(0, renderT - toT)) / tickSpan
+        : toT === fromT
+          ? 1
+          : Math.max(0, Math.min(1, (renderT - fromT) / tickSpan));
 
       prevBodies.clear();
       for (const snake of from.snakes) {
@@ -240,15 +255,15 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       function displayAngle(serverAngle: number) {
-        return performance.now() - localSteerAt < 600 ? localSteerAngle : serverAngle;
+        return localSteerAt > latestArrivedAt && frameStart - localSteerAt < 600 ? localSteerAngle : serverAngle;
       }
 
       function predictionDistance(snake: GameSnapshot["snakes"][number]) {
-        if (snake.id !== playerId || ownPredictionMs <= 0) return 0;
+        if (snake.id !== playerId || localPendingMs <= 0) return 0;
         const effects = snake.effects ?? {};
         const wallNow = Date.now();
         const speedMul = wallNow < (effects.boost ?? 0) ? 2 : wallNow < (effects.slow ?? 0) ? 0.5 : 1;
-        return (ownPredictionMs / Math.max(80, tickMs)) * speedMul;
+        return (localPendingMs / Math.max(80, tickMs)) * speedMul;
       }
 
       function applyPrediction(
@@ -258,7 +273,8 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       ) {
         const distance = predictionDistance(snake);
         if (distance <= 0) return point;
-        const fade = Math.max(0.2, 1 - bodyIndex * 0.08);
+        const fade = bodyIndex <= 0 ? 1 : Math.max(0, 1 - bodyIndex * 0.18);
+        if (fade <= 0) return point;
         const angle = (displayAngle(snake.angle) * Math.PI) / 180;
         point.x += Math.cos(angle) * distance * fade;
         point.y += Math.sin(angle) * distance * fade;
