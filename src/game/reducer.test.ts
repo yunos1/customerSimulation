@@ -66,6 +66,34 @@ describe("START_DAY", () => {
   });
 });
 
+describe("ADD_AGENT_MESSAGE", () => {
+  it("连续预插入同一条客服回复时保持幂等，避免聊天区重复两条", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    expect(session).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "ADD_AGENT_MESSAGE",
+      sessionId: session!.id,
+      text: "我先帮你查订单节点。",
+    });
+    state = gameReducer(state, {
+      type: "ADD_AGENT_MESSAGE",
+      sessionId: session!.id,
+      text: "我先帮你查订单节点。",
+    });
+
+    const updatedSession = getActiveSession(state);
+    const matchingAgentMessages = updatedSession!.messages.filter(
+      (message) => message.speaker === "agent" && message.text === "我先帮你查订单节点。",
+    );
+
+    expect(matchingAgentMessages).toHaveLength(1);
+  });
+});
+
 describe("收尾条件（间接验证 shouldSummarize）", () => {
   // 驱动一整天：反复 TICK 推进时间并接入客户，对每个活跃会话不断选回复直到结束。
   // 全部客户连接且无活跃会话后，phase 应转为 summary 并生成 summary。

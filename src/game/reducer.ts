@@ -153,6 +153,10 @@ function runReducer(state: GameState, action: GameAction): GameState {
     case "ADD_AGENT_MESSAGE": {
       const session = getSessionById(state, action.sessionId);
       if (!session) return state;
+      const lastMessage = session.messages[session.messages.length - 1];
+      if (lastMessage?.speaker === "agent" && lastMessage.text.trim() === action.text.trim()) {
+        return state;
+      }
       const nextSession = { ...session, messages: trimSessionMessages([...session.messages, createMessage("agent", action.text)]) };
       return { ...state, sessions: replaceSession(state.sessions, nextSession) };
     }

@@ -73,6 +73,7 @@ export default function App() {
   const recordedSummaryRef = useRef<string | undefined>(undefined);
   // 持有最新 state 引用，避免 handleChoose/handleSubmitFreeReply 将整个 state 加入依赖。
   const stateRef = useRef(state);
+  const pendingReplySessionRef = useRef<string | undefined>(undefined);
   // 上一次已知的解锁卡集合，用于 diff 出「新」解锁（初始化为当前已解锁，避免开局误报）。
   const knownUnlockedRef = useRef<Set<string>>(new Set(meta.unlockedCardIds));
 
@@ -211,6 +212,7 @@ export default function App() {
   const backToHub = useCallback(() => setActiveSimulator("hub"), []);
   const handleSwitchSupportMode = useCallback(() => {
     recordedSummaryRef.current = undefined;
+    pendingReplySessionRef.current = undefined;
     setPendingReplySessionId(undefined);
     setScrollTargetSessionId(undefined);
     setView("mode_select");
@@ -238,6 +240,8 @@ export default function App() {
       }
 
       recordedSummaryRef.current = undefined;
+      pendingReplySessionRef.current = undefined;
+      setPendingReplySessionId(undefined);
       selectDay(currentSupportMode.id, dayId);
       setView("shift");
       dispatch({
@@ -264,13 +268,19 @@ export default function App() {
       const s = stateRef.current;
       const session = getActiveSession(s);
 
-      if (s.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
+      if (
+        s.phase !== "player_reply" ||
+        !session ||
+        session.status !== "active" ||
+        pendingReplySessionRef.current
+      ) {
         return;
       }
 
       const sessionId = session.id;
       const runId = s.runId;
       const card = s.level.replyCards.find((c: ReplyCard) => c.id === cardId);
+      pendingReplySessionRef.current = sessionId;
       if (card) dispatch({ type: "ADD_AGENT_MESSAGE", text: card.title, sessionId });
       setPendingReplySessionId(sessionId);
       setStreamingText("");
@@ -290,22 +300,31 @@ export default function App() {
         })
         .finally(() => {
           setStreamingText(undefined);
+          if (pendingReplySessionRef.current === sessionId) {
+            pendingReplySessionRef.current = undefined;
+          }
           setPendingReplySessionId((currentId) => (currentId === sessionId ? undefined : currentId));
         });
     },
-    [pendingReplySessionId],
+    [],
   );
   const handleSubmitFreeReply = useCallback(
     (text: string) => {
       const s = stateRef.current;
       const session = getActiveSession(s);
 
-      if (s.phase !== "player_reply" || !session || session.status !== "active" || pendingReplySessionId) {
+      if (
+        s.phase !== "player_reply" ||
+        !session ||
+        session.status !== "active" ||
+        pendingReplySessionRef.current
+      ) {
         return;
       }
 
       const sessionId = session.id;
       const runId = s.runId;
+      pendingReplySessionRef.current = sessionId;
       dispatch({ type: "ADD_AGENT_MESSAGE", text, sessionId });
       setPendingReplySessionId(sessionId);
       setStreamingText("");
@@ -325,13 +344,18 @@ export default function App() {
         })
         .finally(() => {
           setStreamingText(undefined);
+          if (pendingReplySessionRef.current === sessionId) {
+            pendingReplySessionRef.current = undefined;
+          }
           setPendingReplySessionId((currentId) => (currentId === sessionId ? undefined : currentId));
         });
     },
-    [pendingReplySessionId],
+    [],
   );
   const handleRetry = useCallback(() => {
     recordedSummaryRef.current = undefined;
+    pendingReplySessionRef.current = undefined;
+    setPendingReplySessionId(undefined);
     dispatch({
       type: "RESTART_DAY",
       level: buildLevelConfig(currentDay, currentSupportMode, meta.unlockedCardIds),
@@ -351,6 +375,8 @@ export default function App() {
   const handleResetCareer = useCallback(() => {
     if (window.confirm("确定要重置全部客服模式进度吗？解锁与最佳评级都会清空。")) {
       knownUnlockedRef.current = new Set();
+      pendingReplySessionRef.current = undefined;
+      setPendingReplySessionId(undefined);
       setNewlyUnlockedCards([]);
       resetCareer();
       setView("mode_select");
