@@ -1,3 +1,3 @@
-AI_BASE_URL=https://lpgpt.us/v1
+AI_BASE_URL=https://unity2.ai
 AI_KEY=replace-with-your-key
-AI_MODEL=gpt-4o-mini
+AI_MODEL=gpt-5.5

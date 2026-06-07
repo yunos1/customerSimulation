@@ -145,10 +145,24 @@ function runReducer(state: GameState, action: GameAction): GameState {
       return openTimeoutAlert(state, action.sessionId);
 
     case "CHOOSE_REPLY":
-      return chooseReply(state, action.cardId, action.sessionId, action.aiReactionLine, action.aiAssessment);
+      return chooseReply(
+        state,
+        action.cardId,
+        action.sessionId,
+        action.aiReactionLine,
+        action.aiAssessment,
+        action.replyId,
+      );
 
     case "SUBMIT_FREE_REPLY":
-      return submitFreeReply(state, action.text, action.sessionId, action.aiReactionLine, action.aiAssessment);
+      return submitFreeReply(
+        state,
+        action.text,
+        action.sessionId,
+        action.aiReactionLine,
+        action.aiAssessment,
+        action.replyId,
+      );
 
     case "ADD_AGENT_MESSAGE": {
       const session = getSessionById(state, action.sessionId);
@@ -157,7 +171,11 @@ function runReducer(state: GameState, action: GameAction): GameState {
       if (lastMessage?.speaker === "agent" && lastMessage.text.trim() === action.text.trim()) {
         return state;
       }
-      const nextSession = { ...session, messages: trimSessionMessages([...session.messages, createMessage("agent", action.text)]) };
+      const nextSession = {
+        ...session,
+        pendingReplyId: action.replyId ?? session.pendingReplyId,
+        messages: appendAgentMessage(session.messages, action.text, action.replyId),
+      };
       return { ...state, sessions: replaceSession(state.sessions, nextSession) };
     }
 
@@ -336,6 +354,7 @@ function chooseReply(
   sessionId?: string,
   aiReactionLine?: string,
   aiAssessment?: ReplyAssessment,
+  replyId?: string,
 ): GameState {
   if (state.phase !== "player_reply") {
     return state;
@@ -343,7 +362,7 @@ function chooseReply(
 
   const session = sessionId ? getSessionById(state, sessionId) : getActiveSession(state);
 
-  if (!session || session.status !== "active") {
+  if (!session || session.status !== "active" || !canResolvePendingReply(session, replyId)) {
     return state;
   }
 
@@ -353,7 +372,7 @@ function chooseReply(
     return state;
   }
 
-  return answerSession(state, session, card, false, aiReactionLine, aiAssessment);
+  return answerSession(state, session, card, false, aiReactionLine, aiAssessment, replyId);
 }
 
 function submitFreeReply(
@@ -362,6 +381,7 @@ function submitFreeReply(
   sessionId?: string,
   aiReactionLine?: string,
   aiAssessment?: ReplyAssessment,
+  replyId?: string,
 ): GameState {
   if (state.phase !== "player_reply") {
     return state;
@@ -370,7 +390,7 @@ function submitFreeReply(
   const trimmedText = text.trim();
   const session = sessionId ? getSessionById(state, sessionId) : getActiveSession(state);
 
-  if (!trimmedText || !session || session.status !== "active") {
+  if (!trimmedText || !session || session.status !== "active" || !canResolvePendingReply(session, replyId)) {
     return state;
   }
 
@@ -381,6 +401,7 @@ function submitFreeReply(
     true,
     aiReactionLine,
     aiAssessment,
+    replyId,
   );
 }
 
@@ -391,12 +412,13 @@ function answerSession(
   isFreeReply: boolean,
   aiReactionLine?: string,
   aiAssessment?: ReplyAssessment,
+  replyId?: string,
 ): GameState {
   const round = getActiveRound(session.customer, session.activeRoundIndex);
   const nextRoundIndex = session.activeRoundIndex + 1;
 
   if (card.tags.includes("pushback")) {
-    return pushBackAtCustomer(state, session, card, isFreeReply);
+    return pushBackAtCustomer(state, session, card, isFreeReply, replyId);
   }
 
   const { delta, reactionKind, feedback } = scoreReply(session.customer, round, card, {
@@ -434,11 +456,8 @@ function answerSession(
     nextRoundIndex,
     nextOutcomeMetrics,
   );
-  const lastMsg = session.messages[session.messages.length - 1];
-  const agentMsgAlreadyAdded = lastMsg?.speaker === "agent" && lastMsg.text === card.title;
   const baseMessages = trimSessionMessages([
-    ...session.messages,
-    ...(agentMsgAlreadyAdded ? [] : [createMessage("agent", card.title)]),
+    ...appendAgentMessage(session.messages, card.title, replyId),
     createMessage("customer", reactionLine),
     createMessage("system", feedback.message),
   ]);
@@ -452,6 +471,7 @@ function answerSession(
       replyHistory: [...session.replyHistory, createReplyMemory(card)],
       status: outcome.status === "resolved" ? "resolved" : "failed",
       outcome,
+      pendingReplyId: undefined,
       messages: [
         ...baseMessages,
         createMessage("system", getOutcomeLine(outcome.status)),
@@ -487,6 +507,7 @@ function answerSession(
     activeRoundIndex: nextRoundIndex,
     metrics: nextSessionMetrics,
     replyHistory: [...session.replyHistory, createReplyMemory(card)],
+    pendingReplyId: undefined,
     messages: usedAiLine
       ? baseMessages
       : [
@@ -510,6 +531,7 @@ function pushBackAtCustomer(
   session: CustomerSession,
   card: ReplyCard,
   isFreeReply: boolean,
+  replyId?: string,
 ): GameState {
   const round = getActiveRound(session.customer, session.activeRoundIndex);
   const reactionLine = getReactionLine(
@@ -532,10 +554,10 @@ function pushBackAtCustomer(
     status: "failed",
     metrics: nextSessionMetrics,
     replyHistory: [...session.replyHistory, createReplyMemory(card)],
+    pendingReplyId: undefined,
     outcome,
     messages: [
-      ...session.messages,
-      createMessage("agent", card.title),
+      ...appendAgentMessage(session.messages, card.title, replyId),
       createMessage("customer", reactionLine),
       createMessage("system", feedback.message),
       createMessage("system", "硬刚结局：你把耳麦一摘，今日绩效开始冒烟。"),
@@ -1006,14 +1028,37 @@ function getOutcomeLabel(status: CustomerOutcome["status"]) {
   return "投诉";
 }
 
-function createMessage(speaker: ChatMessage["speaker"], text: string): ChatMessage {
+function createMessage(speaker: ChatMessage["speaker"], text: string, replyId?: string): ChatMessage {
   messageCounter += 1;
 
   return {
     id: `msg-${messageCounter}`,
     speaker,
     text,
+    ...(replyId ? { replyId } : {}),
   };
+}
+
+function appendAgentMessage(messages: ChatMessage[], text: string, replyId?: string): ChatMessage[] {
+  const lastMessage = messages[messages.length - 1];
+
+  if (
+    lastMessage?.speaker === "agent" &&
+    lastMessage.text.trim() === text.trim() &&
+    (!replyId || lastMessage.replyId === replyId || !lastMessage.replyId)
+  ) {
+    return messages;
+  }
+
+  return trimSessionMessages([...messages, createMessage("agent", text, replyId)]);
+}
+
+function canResolvePendingReply(session: CustomerSession, replyId?: string) {
+  if (replyId) {
+    return session.pendingReplyId === replyId;
+  }
+
+  return !session.pendingReplyId;
 }
 
 /** 会话消息超过上限时，保留首条系统消息（接入提示）+ 最近的 maxSessionMessages-1 条。 */

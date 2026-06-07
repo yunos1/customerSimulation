@@ -281,7 +281,8 @@ export default function App() {
       const runId = s.runId;
       const card = s.level.replyCards.find((c: ReplyCard) => c.id === cardId);
       pendingReplySessionRef.current = sessionId;
-      if (card) dispatch({ type: "ADD_AGENT_MESSAGE", text: card.title, sessionId });
+      const replyId = `${runId}:${sessionId}:${cardId}:${Date.now()}`;
+      if (card) dispatch({ type: "ADD_AGENT_MESSAGE", text: card.title, sessionId, replyId });
       setPendingReplySessionId(sessionId);
       setStreamingText("");
       void requestAiCustomerReplyStream(s, session, { kind: "card", cardId }, (partial) => {
@@ -296,6 +297,7 @@ export default function App() {
             sessionId,
             aiReactionLine: aiReply?.line,
             aiAssessment: aiReply?.assessment,
+            replyId,
           });
         })
         .finally(() => {
@@ -324,8 +326,9 @@ export default function App() {
 
       const sessionId = session.id;
       const runId = s.runId;
+      const replyId = `${runId}:${sessionId}:free:${Date.now()}`;
       pendingReplySessionRef.current = sessionId;
-      dispatch({ type: "ADD_AGENT_MESSAGE", text, sessionId });
+      dispatch({ type: "ADD_AGENT_MESSAGE", text, sessionId, replyId });
       setPendingReplySessionId(sessionId);
       setStreamingText("");
       void requestAiCustomerReplyStream(s, session, { kind: "free", text }, (partial) => {
@@ -340,6 +343,7 @@ export default function App() {
             sessionId,
             aiReactionLine: aiReply?.line,
             aiAssessment: aiReply?.assessment,
+            replyId,
           });
         })
         .finally(() => {

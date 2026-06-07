@@ -1,40 +1,49 @@
-# 模拟器盒子
+# 冤神 启动！
 
-一个面向多种模拟游戏的首页盒子原型。当前可玩的第一个模块是客服模拟器《亲亲，这边不建议呢》：玩家在客服后台里处理多路客户会话，在满意度、怒气、公司成本、合规风险和剩余时间之间做取舍。
+## 这是什么
 
-后续可以继续把门店排班、厂房调度、诊室分诊等模拟游戏接入同一个盒子首页。
+一个面向多种职场模拟小游戏的网页应用。
 
-## 当前模块
+## 怎么跑
 
-- 客服模拟器：已接入，可从首页启动。
-- 门店排班模拟器：预留插槽。
-- 厂房调度模拟器：预留插槽。
-- 诊室分诊模拟器：预留插槽。
+1. clone 仓库
 
-## 开发目标
-
-- 首页作为模拟器集合入口，避免项目只绑定单一客服题材。
-- 各个模拟器模块保持独立，方便后续新增玩法。
-- 客户、话术卡、知识库、关卡等内容独立维护。
-- 游戏状态流转集中在 `src/game`，UI 组件只负责展示与触发动作。
-
-## 目录
-
-```text
-src/
-  assets/       首页和模块视觉资源
-  components/   模拟器首页与客服后台 UI 组件
-  content/      客服模拟器内容数据
-  game/         类型、状态机、评分和结算
-  hooks/        持久化进度等 React hooks
-  styles/       全局样式
+```bash
+git clone git@github.com:yunos1/customerSimulation.git
+cd customerSimulation
 ```
 
-## 常用命令
+2. 安装依赖
 
 ```bash
 npm install
-npm run dev
-npm run build
-npm run test
 ```
+
+3. 配置 AI API key
+
+复制 `.env.example` 为 `.env.local`，并填写：
+
+```env
+AI_BASE_URL=https://unity2.ai
+AI_KEY=.env.local
+AI_MODEL=gpt-5.5 claude-opus-4-8
+```
+
+4. 运行
+
+```bash
+npm run dev
+```
+
+浏览器打开：
+
+```text
+http://localhost:5173
+```
+
+## 用了什么
+
+- React + TypeScript + Vite
+- Cloudflare Workers / Wrangler
+- AI API（默认模型：`gpt-5.5 claude-opus-4-8`）
+- 主要功能：模拟器首页、客服模拟器、面试模拟器、门店排班模拟器、诊室分诊模拟器、摸鱼时刻，以及带 AI 客户回复的客服训练流程。

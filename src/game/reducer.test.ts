@@ -92,6 +92,74 @@ describe("ADD_AGENT_MESSAGE", () => {
 
     expect(matchingAgentMessages).toHaveLength(1);
   });
+
+  it("预插入硬刚回复后进入特殊结局时不会再次插入同一条客服回复", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    const pushBackCard = state.level.replyCards.find((card) => card.id === "push-back");
+    expect(session).toBeDefined();
+    expect(pushBackCard).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "ADD_AGENT_MESSAGE",
+      sessionId: session!.id,
+      text: pushBackCard!.title,
+    });
+    state = gameReducer(state, {
+      type: "CHOOSE_REPLY",
+      cardId: pushBackCard!.id,
+      sessionId: session!.id,
+    });
+
+    const updatedSession = state.sessions.find((candidate) => candidate.id === session!.id);
+    const matchingAgentMessages = updatedSession!.messages.filter(
+      (message) => message.speaker === "agent" && message.text === pushBackCard!.title,
+    );
+
+    expect(matchingAgentMessages).toHaveLength(1);
+  });
+
+  it("带同一replyId的AI结算回调重复到达时只处理一次", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    const replyId = "reply-once";
+    expect(session).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "ADD_AGENT_MESSAGE",
+      sessionId: session!.id,
+      text: "发起退款资格复核",
+      replyId,
+    });
+    state = gameReducer(state, {
+      type: "CHOOSE_REPLY",
+      cardId: "refund-review",
+      sessionId: session!.id,
+      replyId,
+      aiReactionLine: "可以，那你现在给我复核。",
+    });
+
+    const afterFirstResolve = state.sessions.find((candidate) => candidate.id === session!.id)!;
+    const messageCountAfterFirstResolve = afterFirstResolve.messages.length;
+    const roundIndexAfterFirstResolve = afterFirstResolve.activeRoundIndex;
+
+    state = gameReducer(state, {
+      type: "CHOOSE_REPLY",
+      cardId: "refund-review",
+      sessionId: session!.id,
+      replyId,
+      aiReactionLine: "可以，那你现在给我复核。",
+    });
+
+    const afterDuplicateResolve = state.sessions.find((candidate) => candidate.id === session!.id)!;
+
+    expect(afterDuplicateResolve.messages).toHaveLength(messageCountAfterFirstResolve);
+    expect(afterDuplicateResolve.activeRoundIndex).toBe(roundIndexAfterFirstResolve);
+  });
 });
 
 describe("收尾条件（间接验证 shouldSummarize）", () => {

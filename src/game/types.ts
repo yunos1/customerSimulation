@@ -160,6 +160,7 @@ export interface ChatMessage {
   id: string;
   speaker: "system" | "customer" | "agent";
   text: string;
+  replyId?: string;
 }
 
 export interface ReplyFeedback {
@@ -266,6 +267,7 @@ export interface CustomerSession {
   elapsedSeconds: number;
   timeoutCounted: boolean;
   timeoutAlertDismissed: boolean;
+  pendingReplyId?: string;
   outcome?: CustomerOutcome;
 }
 
@@ -322,6 +324,7 @@ export type GameAction =
       sessionId?: string;
       aiReactionLine?: string;
       aiAssessment?: ReplyAssessment;
+      replyId?: string;
     }
   | {
       type: "SUBMIT_FREE_REPLY";
@@ -329,6 +332,7 @@ export type GameAction =
       sessionId?: string;
       aiReactionLine?: string;
       aiAssessment?: ReplyAssessment;
+      replyId?: string;
     }
-  | { type: "ADD_AGENT_MESSAGE"; text: string; sessionId: string }
+  | { type: "ADD_AGENT_MESSAGE"; text: string; sessionId: string; replyId?: string }
   | { type: "RESTART_DAY"; level: LevelConfig; seed: number };
