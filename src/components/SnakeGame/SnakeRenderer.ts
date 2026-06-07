@@ -3,8 +3,11 @@ import type { GameSnapshot } from "./useSnakeGame";
 
 const CELL = 26;
 const FRAME_BUDGET_MS = 18;
-const RENDER_BEHIND_MS = 80;
-const MAX_LOCAL_PREDICT_MS = 130;
+const HEAVY_FRAME_BUDGET_MS = 24;
+const MIN_RENDER_BEHIND_MS = 140;
+const MAX_RENDER_BEHIND_MS = 280;
+const RENDER_BEHIND_TICK_RATIO = 1.25;
+const MAX_LOCAL_PREDICT_MS = 220;
 const BUFFER_SIZE = 6;
 const CAMERA_SMOOTHING = 0.22;
 const EYE_SIDES = [1, -1] as const;
@@ -16,6 +19,10 @@ type VisibleSeg = { i: number; sx: number; sy: number };
 type PrevBody = {
   body: { x: number; y: number }[];
   indexMap?: Map<number, { x: number; y: number }>;
+};
+type SnapshotRenderCache = {
+  bodies: Map<string, PrevBody>;
+  snakesById: Map<string, GameSnapshot["snakes"][number]>;
 };
 
 interface RendererOptions {
@@ -125,6 +132,32 @@ function hexToRgb(hex: string): string {
   return `${(n >> 16) & 0xff},${(n >> 8) & 0xff},${n & 0xff}`;
 }
 
+const snapshotRenderCache = new WeakMap<GameSnapshot, SnapshotRenderCache>();
+
+function getSnapshotRenderCache(snapshot: GameSnapshot): SnapshotRenderCache {
+  const hit = snapshotRenderCache.get(snapshot);
+  if (hit) return hit;
+
+  const bodies = new Map<string, PrevBody>();
+  const snakesById = new Map<string, GameSnapshot["snakes"][number]>();
+  for (const snake of snapshot.snakes) {
+    snakesById.set(snake.id, snake);
+    const indexes = snake.bodyIndexes;
+    let indexMap: Map<number, { x: number; y: number }> | undefined;
+    if (indexes) {
+      indexMap = new Map();
+      for (let i = 0; i < snake.body.length; i++) {
+        indexMap.set(indexes[i] ?? i, snake.body[i]);
+      }
+    }
+    bodies.set(snake.id, { body: snake.body, indexMap });
+  }
+
+  const cache = { bodies, snakesById };
+  snapshotRenderCache.set(snapshot, cache);
+  return cache;
+}
+
 export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptions): SnakeRenderer {
   const ctx = getContext2d(canvas);
   if (!ctx) {
@@ -134,8 +167,6 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   warmSprites();
 
   const buffer: GameSnapshot[] = [];
-  const prevBodies = new Map<string, PrevBody>();
-  const prevIndexMaps = new Map<string, Map<number, { x: number; y: number }>>();
   const visibleSegs: VisibleSeg[] = [];
   const tmpPoint = { x: 0, y: 0 };
   // Adaptive quality: smooth EMA of recent frame times, skip expensive effects when slow
@@ -147,13 +178,6 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   let localSteerAngle = 0;
   let localSteerAt = 0;
   let disposed = false;
-
-  // Offscreen grid cache — only redrawn when camera moves
-  let gridCache: SpriteCanvas | null = null;
-  let gridCacheW = 0;
-  let gridCacheH = 0;
-  let gridCacheVx0 = NaN;
-  let gridCacheVy0 = NaN;
 
   const renderer: SnakeRenderer = {
     resize(width, height) {
@@ -190,7 +214,11 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const H = canvas.height;
       if (W <= 0 || H <= 0) return;
 
-      const renderT = frameStart - RENDER_BEHIND_MS;
+      const renderBehindMs = Math.max(
+        MIN_RENDER_BEHIND_MS,
+        Math.min(MAX_RENDER_BEHIND_MS, tickMs * RENDER_BEHIND_TICK_RATIO),
+      );
+      const renderT = frameStart - renderBehindMs;
       let from: GameSnapshot | null = null;
       let to: GameSnapshot | null = null;
       for (let i = buffer.length - 1; i >= 0; i--) {
@@ -210,31 +238,15 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const latestArrivedAt = to.arrivedAt ?? frameStart;
       const ownPredictionMs = Math.min(
         MAX_LOCAL_PREDICT_MS,
-        Math.max(0, Math.max(renderT - latestArrivedAt, localSteerAt - latestArrivedAt)),
+        Math.max(0, frameStart - renderT, localSteerAt - latestArrivedAt),
       );
       const fromT = from.arrivedAt ?? 0;
       const toT = to.arrivedAt ?? fromT + tickMs;
       const t = toT === fromT ? 1 : Math.max(0, Math.min(1, (renderT - fromT) / (toT - fromT)));
 
-      prevBodies.clear();
-      for (const snake of from.snakes) {
-        const indexes = snake.bodyIndexes;
-        let indexMap: Map<number, { x: number; y: number }> | undefined;
-        if (indexes) {
-          indexMap = prevIndexMaps.get(snake.id);
-          if (!indexMap) {
-            indexMap = new Map();
-            prevIndexMaps.set(snake.id, indexMap);
-          }
-          indexMap.clear();
-          for (let i = 0; i < snake.body.length; i++) {
-            indexMap.set(indexes[i] ?? i, snake.body[i]);
-          }
-        }
-        prevBodies.set(snake.id, { body: snake.body, indexMap });
-      }
-
       const snapshot = to;
+      const fromCache = getSnapshotRenderCache(from);
+      const snapshotCache = getSnapshotRenderCache(snapshot);
 
       function lerpSeg(
         id: string,
@@ -247,7 +259,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
           out.y = seg.y;
           return out;
         }
-        const prev = prevBodies.get(id);
+        const prev = fromCache.bodies.get(id);
         if (!prev) {
           out.x = seg.x;
           out.y = seg.y;
@@ -294,7 +306,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         return point;
       }
 
-      const me = snapshot.snakes.find((snake) => snake.id === playerId);
+      const me = snapshotCache.snakesById.get(playerId);
       let targetCx = mapSize / 2;
       let targetCy = mapSize / 2;
       if (me?.alive && me.body.length) {
@@ -319,44 +331,30 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const vxMax = vx0 + W / CELL;
       const vyMax = vy0 + H / CELL;
       const PAD = 2;
-      // Adaptive quality: lowDetail when EMA frame time exceeds budget
       const lowDetail = frameTimeEma > FRAME_BUDGET_MS;
+      const heavyDetail = frameTimeEma > HEAVY_FRAME_BUDGET_MS;
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0e1a";
       ctx.fillRect(0, 0, W, H);
 
       if (!lowDetail) {
-        // Offscreen grid cache: only rebuild when canvas size or camera tile-offset changes
         const tileX = Math.floor(vx0);
         const tileY = Math.floor(vy0);
-        if (
-          !gridCache ||
-          gridCacheW !== W || gridCacheH !== H ||
-          gridCacheVx0 !== tileX || gridCacheVy0 !== tileY
-        ) {
-          gridCacheW = W; gridCacheH = H;
-          gridCacheVx0 = tileX; gridCacheVy0 = tileY;
-          if (!gridCache || (gridCache as OffscreenCanvas).width !== W) {
-            gridCache = createSpriteCanvas(W);
-            (gridCache as OffscreenCanvas).height = H;
-          }
-          const gc = getContext2d(gridCache)!;
-          gc.clearRect(0, 0, W, H);
-          gc.strokeStyle = "rgba(255,255,255,0.04)";
-          gc.lineWidth = 1;
-          gc.beginPath();
-          for (let gx = tileX; gx <= Math.ceil(vxMax); gx++) {
-            const sx = (gx - vx0) * CELL;
-            gc.moveTo(sx, 0); gc.lineTo(sx, H);
-          }
-          for (let gy = tileY; gy <= Math.ceil(vyMax); gy++) {
-            const sy = (gy - vy0) * CELL;
-            gc.moveTo(0, sy); gc.lineTo(W, sy);
-          }
-          gc.stroke();
+        ctx.strokeStyle = "rgba(255,255,255,0.04)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let gx = tileX; gx <= Math.ceil(vxMax); gx++) {
+          const sx = (gx - vx0) * CELL;
+          ctx.moveTo(sx, 0);
+          ctx.lineTo(sx, H);
         }
-        ctx.drawImage(gridCache as CanvasImageSource, 0, 0);
+        for (let gy = tileY; gy <= Math.ceil(vyMax); gy++) {
+          const sy = (gy - vy0) * CELL;
+          ctx.moveTo(0, sy);
+          ctx.lineTo(W, sy);
+        }
+        ctx.stroke();
       }
 
       ctx.save();
@@ -523,8 +521,9 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         ctx.stroke();
 
         ctx.shadowBlur = 0;
-        if (!lowDetail || isMe) {
-          for (let vi = 0; vi < visibleCount; vi++) {
+        if (!heavyDetail && (!lowDetail || isMe)) {
+          const bodyDotStep = lowDetail ? 3 : visibleCount > 120 ? 2 : 1;
+          for (let vi = 0; vi < visibleCount; vi += bodyDotStep) {
             const { i, sx, sy } = visibleSegs[vi];
             if (i === 0) continue;
             ctx.fillStyle = skin.body[i % skin.body.length];
@@ -558,26 +557,32 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
           ctx.arc(hcx, hcy, HR, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
-          const angle = (displayAngle(snake.angle) * Math.PI) / 180;
-          const ex = Math.cos(angle) * R * 0.45;
-          const ey = Math.sin(angle) * R * 0.45;
-          const ep = Math.cos(angle + Math.PI / 2) * R * 0.35;
-          const eq = Math.sin(angle + Math.PI / 2) * R * 0.35;
-          for (const side of EYE_SIDES) {
-            ctx.fillStyle = "#fff";
-            ctx.beginPath();
-            ctx.arc(hcx + ex + ep * side, hcy + ey + eq * side, 3.5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = "#111";
-            ctx.beginPath();
-            ctx.arc(hcx + ex + ep * side + Math.cos(angle), hcy + ey + eq * side + Math.sin(angle), 2, 0, Math.PI * 2);
-            ctx.fill();
+          if (!lowDetail || isMe) {
+            const angle = (displayAngle(snake.angle) * Math.PI) / 180;
+            const ex = Math.cos(angle) * R * 0.45;
+            const ey = Math.sin(angle) * R * 0.45;
+            const ep = Math.cos(angle + Math.PI / 2) * R * 0.35;
+            const eq = Math.sin(angle + Math.PI / 2) * R * 0.35;
+            for (const side of EYE_SIDES) {
+              ctx.fillStyle = "#fff";
+              ctx.beginPath();
+              ctx.arc(hcx + ex + ep * side, hcy + ey + eq * side, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#111";
+              ctx.beginPath();
+              ctx.arc(hcx + ex + ep * side + Math.cos(angle), hcy + ey + eq * side + Math.sin(angle), 2, 0, Math.PI * 2);
+              ctx.fill();
+            }
           }
         }
         ctx.restore();
 
         const head = snake.body[0];
-        if ((!lowDetail || isMe) && head.x >= vx0 - PAD && head.x <= vxMax + PAD) {
+        if (
+          (!lowDetail || isMe) &&
+          head.x >= vx0 - PAD && head.x <= vxMax + PAD &&
+          head.y >= vy0 - PAD && head.y <= vyMax + PAD
+        ) {
           lerpSeg(snake.id, bodyIndexes?.[0] ?? 0, head, tmpPoint);
           applyPrediction(tmpPoint, bodyIndexes?.[0] ?? 0, predictionDx, predictionDy);
           const nhx = (tmpPoint.x - vx0) * CELL;
@@ -619,10 +624,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
     dispose() {
       disposed = true;
       buffer.length = 0;
-      prevBodies.clear();
-      prevIndexMaps.clear();
       visibleSegs.length = 0;
-      gridCache = null;
     },
   };
 

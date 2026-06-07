@@ -40,6 +40,29 @@ const BUFFER_SIZE = 6;
 const SNAPSHOT_STATE_INTERVAL_MS = 500;
 type SnapshotListener = (snapshot: GameSnapshot) => void;
 
+function toUiSnapshot(snapshot: GameSnapshot): GameSnapshot {
+  return {
+    ...snapshot,
+    snakes: snapshot.snakes.map((snake) => ({
+      id: snake.id,
+      username: snake.username,
+      avatarUrl: snake.avatarUrl,
+      skinId: snake.skinId,
+      body: snake.body.length ? [snake.body[0]] : [],
+      angle: snake.angle,
+      alive: snake.alive,
+      score: snake.score,
+      kills: snake.kills,
+      respawnAt: snake.respawnAt,
+      bodyLength: snake.bodyLength ?? snake.body.length,
+      effects: snake.effects,
+      isBot: snake.isBot,
+      bodyHead: true,
+      bodyIndexes: snake.body.length ? [0] : [],
+    })),
+  };
+}
+
 export function useSnakeGame(token: string | null) {
   // bufferRef：最近若干帧快照（按到达顺序，末尾最新），供 GameCanvas 渲染回放。
   // 直接读 ref，不触发 React 重渲染。
@@ -87,7 +110,7 @@ export function useSnakeGame(token: string | null) {
         for (const listener of listenersRef.current) listener(snap);
         if (now - lastStateUpdateRef.current >= SNAPSHOT_STATE_INTERVAL_MS) {
           lastStateUpdateRef.current = now;
-          setSnapshot(snap);
+          setSnapshot(toUiSnapshot(snap));
         }
       }
     };
