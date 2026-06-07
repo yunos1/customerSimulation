@@ -5,7 +5,8 @@ type WorkerMessage =
   | { type: "init"; canvas: OffscreenCanvas; width: number; height: number; mapSize: number; playerId: string; tickMs: number }
   | { type: "resize"; width: number; height: number }
   | { type: "config"; mapSize?: number; playerId?: string; tickMs?: number }
-  | { type: "snapshot"; snapshot: GameSnapshot; tickMs: number }
+  | { type: "snapshot"; snapshot: GameSnapshot; tickMs: number; arrivedAgo: number }
+  | { type: "steer"; angle: number }
   | { type: "dispose" };
 
 let renderer: SnakeRenderer | null = null;
@@ -64,7 +65,10 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   } else if (msg.type === "config") {
     renderer.setConfig(msg);
   } else if (msg.type === "snapshot") {
+    msg.snapshot.arrivedAt = performance.now() - msg.arrivedAgo;
     renderer.pushSnapshot(msg.snapshot, msg.tickMs);
+  } else if (msg.type === "steer") {
+    renderer.setLocalSteer(msg.angle);
   } else if (msg.type === "dispose") {
     renderer.dispose();
     renderer = null;

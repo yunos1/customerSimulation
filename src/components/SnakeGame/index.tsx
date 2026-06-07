@@ -1,5 +1,5 @@
 // 主游戏组件：整合 Canvas、MiniMap、HUD、输入
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { GameCanvas } from "./GameCanvas";
 import { GameHUD } from "./GameHUD";
 import { MiniMap } from "./MiniMap";
@@ -12,15 +12,28 @@ interface Props {
 }
 
 export function SnakeGame({ token, onBackToHub }: Props) {
+  const rendererSteerRef = useRef<((angle: number) => void) | null>(null);
   const {
     snapshot, tickMsRef, subscribeSnapshot,
     connected, mapSize, playerId, steer, leave,
   } = useSnakeGame(token);
 
   const handleSteer = useCallback(
-    (angle: number) => steer(angle),
+    (angle: number) => {
+      rendererSteerRef.current?.(angle);
+      steer(angle);
+    },
     [steer],
   );
+
+  const handleRendererReady = useCallback((api: { setLocalSteer: (angle: number) => void }) => {
+    rendererSteerRef.current = api.setLocalSteer;
+    return () => {
+      if (rendererSteerRef.current === api.setLocalSteer) {
+        rendererSteerRef.current = null;
+      }
+    };
+  }, []);
 
   useGameInput(handleSteer);
 
@@ -53,6 +66,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
         mapSize={mapSize}
         playerId={playerId}
         subscribeSnapshot={subscribeSnapshot}
+        onRendererReady={handleRendererReady}
       />
       <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={snapshot?.snakes.find(s => s.id === playerId)?.alive === false} />
       <GameHUD snapshot={snapshot} playerId={playerId} onBackToHub={handleBack} />

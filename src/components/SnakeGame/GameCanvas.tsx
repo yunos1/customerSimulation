@@ -9,6 +9,7 @@ interface Props {
   mapSize: number;
   playerId: string;
   subscribeSnapshot: SnapshotSubscriber;
+  onRendererReady?: (api: { setLocalSteer: (angle: number) => void }) => () => void;
 }
 
 type WorkerCanvasSession = {
@@ -20,7 +21,7 @@ type WorkerCanvasSession = {
 
 let devWorkerSession: WorkerCanvasSession | null = null;
 
-export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot }: Props) {
+export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, onRendererReady }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const rendererRef = useRef<SnakeRenderer | null>(null);
@@ -154,12 +155,27 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot }: 
       const tickMs = tickMsRef.current || 200;
       const worker = workerRef.current;
       if (worker) {
-        worker.postMessage({ type: "snapshot", snapshot, tickMs });
+        worker.postMessage({
+          type: "snapshot",
+          snapshot,
+          tickMs,
+          arrivedAgo: Math.max(0, performance.now() - (snapshot.arrivedAt ?? performance.now())),
+        });
       } else {
         rendererRef.current?.pushSnapshot(snapshot, tickMs);
       }
     });
   }, [subscribeSnapshot, tickMsRef]);
+
+  useEffect(() => {
+    if (!onRendererReady) return undefined;
+    return onRendererReady({
+      setLocalSteer(angle) {
+        workerRef.current?.postMessage({ type: "steer", angle });
+        rendererRef.current?.setLocalSteer(angle);
+      },
+    });
+  }, [onRendererReady]);
 
   return (
     <canvas
