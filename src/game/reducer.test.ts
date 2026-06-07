@@ -178,6 +178,8 @@ describe("AI语义结算", () => {
       aiAssessment: {
         tags: ["refund_check", "investigate"],
         reactionKind: "success",
+        customerIntent: "accepted",
+        issueResolved: true,
         effectAdjustments: { satisfaction: 4, anger: -4 },
         coachingNote: "承接了复核诉求和反馈时间",
         confidence: 0.9,
@@ -205,8 +207,11 @@ describe("AI语义结算", () => {
       aiAssessment: {
         tags: ["refund_check", "investigate"],
         reactionKind: "success",
+        customerIntent: "still_concerned",
+        issueResolved: false,
         effectAdjustments: { satisfaction: 4, anger: -4 },
         coachingNote: "承接了复核诉求，但客户仍追问时效",
+        nextAgentFocus: "补充复核时效和回访方式",
         confidence: 0.9,
       },
     });
@@ -232,6 +237,8 @@ describe("AI语义结算", () => {
       aiAssessment: {
         tags: ["pushback", "refund_check"],
         reactionKind: "success",
+        customerIntent: "accepted",
+        issueResolved: true,
         effectAdjustments: { satisfaction: 4, anger: -4 },
         coachingNote: "短答承诺继续处理",
         confidence: 0.9,
@@ -242,6 +249,39 @@ describe("AI语义结算", () => {
 
     expect(updatedSession.outcome?.status).not.toBe("rage_quit");
     expect(state.achievementStats.rageQuitCount).toBe(0);
+  });
+
+  it("快捷回复会被AI复判，客户仍缺信息时不按旧数值阈值强行结案", () => {
+    let state = createInitialState(activeDay, 100);
+    state = gameReducer(state, { type: "START_DAY", seed: 100 });
+
+    const session = getActiveSession(state);
+    expect(session).toBeDefined();
+
+    state = gameReducer(state, {
+      type: "CHOOSE_REPLY",
+      sessionId: session!.id,
+      cardId: "small-coupon",
+      aiReactionLine: "优惠券先别说，我要知道这单到底是谁负责、多久给结果。",
+      aiAssessment: {
+        tags: ["compensation", "template"],
+        reactionKind: "neutral",
+        customerIntent: "needs_info",
+        issueResolved: false,
+        effectAdjustments: { satisfaction: -3, anger: 4, complianceRisk: 4 },
+        coachingNote: "补偿来得太早，客户还在要责任和时效",
+        nextAgentFocus: "先补订单责任归属和明确反馈时间",
+        confidence: 0.9,
+      },
+    });
+
+    const updatedSession = state.sessions.find((candidate) => candidate.id === session!.id)!;
+
+    expect(updatedSession.status).toBe("active");
+    expect(updatedSession.outcome).toBeUndefined();
+    expect(updatedSession.replyHistory[updatedSession.replyHistory.length - 1]?.tags).toEqual([
+      "compensation",
+    ]);
   });
 });
 

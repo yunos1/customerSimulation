@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildAssessedReplyCard, buildFreeReplyCard, normalizeReplyAssessment } from "./freeReply";
+import {
+  buildAssessedBaseReplyCard,
+  buildAssessedReplyCard,
+  buildFreeReplyCard,
+  normalizeReplyAssessment,
+} from "./freeReply";
 
 describe("buildFreeReplyCard", () => {
   it("识别自然表达里的查证、物流和回访意图，而不是降级成模板", () => {
@@ -66,21 +71,55 @@ describe("buildAssessedReplyCard", () => {
   });
 });
 
+describe("buildAssessedBaseReplyCard", () => {
+  it("让快捷回复也可以被AI按上下文复判意图", () => {
+    const card = buildAssessedBaseReplyCard(
+      {
+        id: "quick",
+        title: "申请主管协助判断",
+        shortLabel: "主管",
+        description: "d",
+        tags: ["supervisor", "policy"],
+        effects: { satisfaction: 6, anger: -10, complianceRisk: -16, timeLeft: -12 },
+      },
+      {
+        tags: ["empathy", "investigate"],
+        effectAdjustments: { satisfaction: 3, anger: -2 },
+        reactionKind: "success",
+        customerIntent: "still_concerned",
+        issueResolved: false,
+        coachingNote: "先查证比直接升级更贴合当前问题",
+        confidence: 0.8,
+      },
+    );
+
+    expect(card.tags).toEqual(["empathy", "investigate"]);
+    expect(card.effects.satisfaction).toBeGreaterThan(6);
+    expect(card.effects.complianceRisk).toBeUndefined();
+  });
+});
+
 describe("normalizeReplyAssessment", () => {
   it("过滤非法标签并限制数值修正范围", () => {
     const assessment = normalizeReplyAssessment({
       tags: ["investigate", "unknown", "template"],
       reactionKind: "success",
+      customerIntent: "needs_info",
+      issueResolved: false,
       effectAdjustments: { satisfaction: 99, anger: -99 },
       coachingNote: "清楚说明了下一步",
+      nextAgentFocus: "补充明确回访时效",
       confidence: 2,
     });
 
     expect(assessment).toEqual({
       tags: ["investigate"],
       reactionKind: "success",
+      customerIntent: "needs_info",
+      issueResolved: false,
       effectAdjustments: { satisfaction: 10, anger: -10 },
       coachingNote: "清楚说明了下一步",
+      nextAgentFocus: "补充明确回访时效",
       confidence: 1,
     });
   });

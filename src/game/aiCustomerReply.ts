@@ -1,9 +1,8 @@
 import { buildFreeReplyCard, normalizeReplyAssessment } from "./freeReply";
 import { getActiveRound } from "./customerFlow";
-import { scoreReply } from "./scoring";
 import type { CustomerSession, GameState, ReplyAssessment, ReplyCard } from "./types";
 
-const requestTimeoutMs = 14000;
+const requestTimeoutMs = 20000;
 
 export type PlayerReplyDraft =
   | { kind: "card"; cardId: string }
@@ -14,7 +13,6 @@ function buildRequestBody(
   state: GameState,
   session: CustomerSession,
   card: ReplyCard,
-  reactionKind: string,
   stream?: boolean,
 ) {
   const allMessages = session.messages.filter(
@@ -36,11 +34,23 @@ function buildRequestBody(
     : undefined;
 
   return {
+    task: "analyze_player_reply_and_continue_customer_dialogue",
+    rubric: {
+      success:
+        "客户感到被理解，并看到具体、可信、合规的下一步；如果诉求已经被解决，可以接受方案。",
+      neutral:
+        "回复有一部分有效，但仍缺少时效、责任、证据、边界或下一步，客户会继续追问。",
+      failure:
+        "回复敷衍、模板化、过早拒绝、乱承诺、甩锅或激怒客户，客户更不满或升级。",
+      resolvedRule:
+        "只有客户明确接受当前方案且没有实质追问时 issueResolved 才能为 true；只要客户还在问多久、谁负责、为什么、能不能、如果失败怎么办，就必须为 false。",
+    },
     customer: {
       name: session.customer.name,
       type: session.customer.type,
       issue: session.customer.issue,
       profileNotes: session.customer.profileNotes,
+      patience: session.customer.patience,
       metrics: session.metrics,
     },
     round: {
@@ -48,9 +58,15 @@ function buildRequestBody(
       preferredTags: round.preferredTags,
       riskyTags: round.riskyTags,
     },
-    reply: { text: card.title, tags: card.tags },
-    reactionKind,
+    reply: { text: card.title, initialTags: card.tags },
     history,
+    previousReplies: session.replyHistory.slice(-4),
+    shiftContext: {
+      globalMetrics: state.metrics,
+      fatigue: state.fatigue,
+      templateUseCount: state.coachingStats.templateUseCount,
+      recentTimingRiskNotes: state.coachingStats.recentTimingRiskNotes,
+    },
     assessment: true,
     ...(nextConcern ? { nextConcern } : {}),
     ...(stream ? { stream: true } : {}),
@@ -70,12 +86,6 @@ export async function requestAiCustomerReply(
   const card = resolveDraftCard(state, draft);
   if (!card) return undefined;
 
-  const round = getActiveRound(session.customer, session.activeRoundIndex);
-  const { reactionKind } = scoreReply(session.customer, round, card, {
-    previousReply: session.replyHistory[session.replyHistory.length - 1],
-    templateUseCount: state.coachingStats.templateUseCount,
-  });
-
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -83,7 +93,7 @@ export async function requestAiCustomerReply(
     const response = await fetch("/api/customer-reaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRequestBody(state, session, card, reactionKind)),
+      body: JSON.stringify(buildRequestBody(state, session, card)),
       signal: controller.signal,
     });
 
@@ -119,12 +129,6 @@ export async function requestAiCustomerReplyStream(
   const card = resolveDraftCard(state, draft);
   if (!card) return undefined;
 
-  const round = getActiveRound(session.customer, session.activeRoundIndex);
-  const { reactionKind } = scoreReply(session.customer, round, card, {
-    previousReply: session.replyHistory[session.replyHistory.length - 1],
-    templateUseCount: state.coachingStats.templateUseCount,
-  });
-
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -132,7 +136,7 @@ export async function requestAiCustomerReplyStream(
     const response = await fetch("/api/customer-reaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRequestBody(state, session, card, reactionKind, true)),
+      body: JSON.stringify(buildRequestBody(state, session, card, true)),
       signal: controller.signal,
     });
 

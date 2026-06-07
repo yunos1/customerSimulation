@@ -1,7 +1,7 @@
 import { getUnlockedAchievements } from "../content/achievements";
 import { difficultyPresets, fatigue as fatigueCfg, holiday as holidayCfg, sessionTiming } from "./balance";
 import { buildRandomizedCustomers } from "./customerGenerator";
-import { buildAssessedReplyCard } from "./freeReply";
+import { buildAssessedBaseReplyCard, buildAssessedReplyCard } from "./freeReply";
 import { getActiveRound, shouldResolveCustomer } from "./customerFlow";
 import { getReactionLine } from "./reactions";
 import {
@@ -417,12 +417,13 @@ function answerSession(
 ): GameState {
   const round = getActiveRound(session.customer, session.activeRoundIndex);
   const nextRoundIndex = session.activeRoundIndex + 1;
+  const scoredCard = isFreeReply ? card : buildAssessedBaseReplyCard(card, aiAssessment);
 
-  if (card.tags.includes("pushback")) {
-    return pushBackAtCustomer(state, session, card, isFreeReply, replyId);
+  if (scoredCard.tags.includes("pushback")) {
+    return pushBackAtCustomer(state, session, scoredCard, isFreeReply, replyId);
   }
 
-  const { delta, reactionKind, feedback } = scoreReply(session.customer, round, card, {
+  const { delta, reactionKind, feedback } = scoreReply(session.customer, round, scoredCard, {
     previousReply: getPreviousReply(session),
     templateUseCount: state.coachingStats.templateUseCount,
     recentTimingRiskNotes: state.coachingStats.recentTimingRiskNotes,
@@ -447,7 +448,7 @@ function answerSession(
     getReactionLine(
       session.customer,
       round,
-      card,
+      scoredCard,
       reactionKind,
       messageCounter + session.elapsedSeconds + nextRoundIndex,
     );
@@ -457,25 +458,26 @@ function answerSession(
     nextRoundIndex,
     nextOutcomeMetrics,
     {
-      card,
+      card: scoredCard,
       isAiReactionLine: usedAiLine,
       reactionKind,
       reactionLine,
+      aiAssessment,
     },
   );
   const baseMessages = trimSessionMessages([
-    ...appendAgentMessage(session.messages, card.title, replyId),
+    ...appendAgentMessage(session.messages, scoredCard.title, replyId),
     createMessage("customer", reactionLine),
     createMessage("system", feedback.message),
   ]);
-  const nextCoachingStats = getNextCoachingStats(state, card, feedback, isFreeReply);
+  const nextCoachingStats = getNextCoachingStats(state, scoredCard, feedback, isFreeReply);
 
   if (outcome) {
     const nextSession: CustomerSession = {
       ...session,
       activeRoundIndex: nextRoundIndex,
       metrics: nextSessionMetrics,
-      replyHistory: [...session.replyHistory, createReplyMemory(card)],
+      replyHistory: [...session.replyHistory, createReplyMemory(scoredCard)],
       status: outcome.status === "resolved" ? "resolved" : "failed",
       outcome,
       pendingReplyId: undefined,
@@ -513,7 +515,7 @@ function answerSession(
     ...session,
     activeRoundIndex: nextRoundIndex,
     metrics: nextSessionMetrics,
-    replyHistory: [...session.replyHistory, createReplyMemory(card)],
+    replyHistory: [...session.replyHistory, createReplyMemory(scoredCard)],
     pendingReplyId: undefined,
     messages: usedAiLine
       ? baseMessages
@@ -725,6 +727,7 @@ function maybeBuildOutcome(
     isAiReactionLine: boolean;
     reactionKind: ReplyReactionKind;
     reactionLine: string;
+    aiAssessment?: ReplyAssessment;
   },
 ) {
   if (
@@ -733,6 +736,16 @@ function maybeBuildOutcome(
     metrics.complianceRisk >= 100
   ) {
     return createOutcome(customer, metrics);
+  }
+
+  const aiResolutionDecision = getAiResolutionDecision(resolutionContext?.aiAssessment);
+
+  if (aiResolutionDecision === "resolved") {
+    return createOutcome(customer, metrics);
+  }
+
+  if (aiResolutionDecision === "continue") {
+    return undefined;
   }
 
   if (
@@ -746,6 +759,31 @@ function maybeBuildOutcome(
       ))
   ) {
     return createOutcome(customer, metrics);
+  }
+
+  return undefined;
+}
+
+function getAiResolutionDecision(assessment?: ReplyAssessment) {
+  if (!assessment) {
+    return undefined;
+  }
+
+  if (assessment.issueResolved === true && assessment.customerIntent === "accepted") {
+    return "resolved" as const;
+  }
+
+  if (assessment.issueResolved === true && assessment.reactionKind === "success") {
+    return "resolved" as const;
+  }
+
+  if (
+    assessment.issueResolved === false ||
+    assessment.customerIntent === "still_concerned" ||
+    assessment.customerIntent === "needs_info" ||
+    assessment.customerIntent === "escalating"
+  ) {
+    return "continue" as const;
   }
 
   return undefined;

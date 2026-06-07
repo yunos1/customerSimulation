@@ -1,4 +1,11 @@
-import type { MetricDelta, ReplyAssessment, ReplyCard, ReplyReactionKind, ToneTag } from "./types";
+import type {
+  CustomerIntent,
+  MetricDelta,
+  ReplyAssessment,
+  ReplyCard,
+  ReplyReactionKind,
+  ToneTag,
+} from "./types";
 
 const orderedToneTags: ToneTag[] = [
   "pushback",
@@ -166,6 +173,13 @@ export function buildFreeReplyCard(text: string): ReplyCard {
 export function buildAssessedReplyCard(text: string, assessment?: ReplyAssessment): ReplyCard {
   const fallbackCard = buildFreeReplyCard(text);
 
+  return buildAssessedBaseReplyCard(fallbackCard, assessment);
+}
+
+export function buildAssessedBaseReplyCard(
+  fallbackCard: ReplyCard,
+  assessment?: ReplyAssessment,
+): ReplyCard {
   if (!assessment || assessment.tags.length === 0) {
     return fallbackCard;
   }
@@ -176,10 +190,14 @@ export function buildAssessedReplyCard(text: string, assessment?: ReplyAssessmen
     return fallbackCard;
   }
 
+  const effects = areSameTags(tags, fallbackCard.tags)
+    ? fallbackCard.effects
+    : buildEffects(tags);
+
   return {
     ...fallbackCard,
     tags,
-    effects: mergeDelta(buildEffects(tags), sanitizeEffectAdjustments(assessment.effectAdjustments)),
+    effects: mergeDelta(effects, sanitizeEffectAdjustments(assessment.effectAdjustments)),
   };
 }
 
@@ -199,16 +217,28 @@ export function normalizeReplyAssessment(value: unknown): ReplyAssessment | unde
     typeof value.coachingNote === "string" && value.coachingNote.trim()
       ? value.coachingNote.trim().slice(0, 90)
       : undefined;
+  const nextAgentFocus =
+    typeof value.nextAgentFocus === "string" && value.nextAgentFocus.trim()
+      ? value.nextAgentFocus.trim().slice(0, 90)
+      : undefined;
   const confidence =
     typeof value.confidence === "number" && Number.isFinite(value.confidence)
       ? Math.max(0, Math.min(1, value.confidence))
       : undefined;
+  const issueResolved =
+    typeof value.issueResolved === "boolean" ? value.issueResolved : undefined;
+  const customerIntent = isCustomerIntent(value.customerIntent)
+    ? value.customerIntent
+    : undefined;
 
   return {
     tags,
     ...(reactionKind ? { reactionKind } : {}),
     ...(coachingNote ? { coachingNote } : {}),
+    ...(nextAgentFocus ? { nextAgentFocus } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
+    ...(issueResolved !== undefined ? { issueResolved } : {}),
+    ...(customerIntent ? { customerIntent } : {}),
     effectAdjustments: sanitizeEffectAdjustments(value.effectAdjustments),
   };
 }
@@ -313,6 +343,13 @@ function reconcileAssessedTags(assessmentTags: ToneTag[], fallbackTags: ToneTag[
   return sortedTags.filter((tag) => tag !== "template" || !hasConcreteIntent(sortedTags));
 }
 
+function areSameTags(left: ToneTag[], right: ToneTag[]) {
+  if (left.length !== right.length) return false;
+
+  const rightSet = new Set(right);
+  return left.every((tag) => rightSet.has(tag));
+}
+
 function sanitizeEffectAdjustments(value: unknown): MetricDelta {
   if (!isRecord(value)) return {};
 
@@ -350,6 +387,15 @@ function isToneTag(value: unknown): value is ToneTag {
 
 function isReactionKind(value: unknown): value is ReplyReactionKind {
   return value === "success" || value === "neutral" || value === "failure";
+}
+
+function isCustomerIntent(value: unknown): value is CustomerIntent {
+  return (
+    value === "accepted" ||
+    value === "still_concerned" ||
+    value === "needs_info" ||
+    value === "escalating"
+  );
 }
 
 const metricKeys: Array<keyof MetricDelta> = [

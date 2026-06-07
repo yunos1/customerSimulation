@@ -174,12 +174,21 @@ export interface ReplyFeedback {
   message: string;
 }
 
+export type CustomerIntent =
+  | "accepted"
+  | "still_concerned"
+  | "needs_info"
+  | "escalating";
+
 export interface ReplyAssessment {
   tags: ToneTag[];
   effectAdjustments?: MetricDelta;
   reactionKind?: ReplyReactionKind;
   coachingNote?: string;
   confidence?: number;
+  issueResolved?: boolean;
+  customerIntent?: CustomerIntent;
+  nextAgentFocus?: string;
 }
 
 export interface CustomerOutcome {

@@ -82,14 +82,14 @@ export const ReplyDeck = memo(function ReplyDeck({
             aria-label="自定义客服回复"
             disabled={disabled}
             maxLength={180}
-            placeholder="输入你的回复，回车发送（Shift+回车换行）..."
+            placeholder="像真实客服一样回复，AI会判断客户反应（回车发送）..."
             value={freeReply}
             onChange={(event) => setFreeReply(event.target.value)}
             onKeyDown={handleKeyDown}
           />
           <button className="primary-button" disabled={disabled || !freeReply.trim()} type="submit">
             <SendHorizontal size={17} aria-hidden="true" />
-            {isThinking ? "分析中" : "发送"}
+            {isThinking ? "AI分析中" : "发送"}
           </button>
         </form>
 

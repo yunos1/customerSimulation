@@ -73,6 +73,12 @@ type ReplyModifier = {
   timingRiskNotes: string[];
 };
 
+type AiJudgment = {
+  delta: MetricDelta;
+  reactionKind?: ReplyReactionKind;
+  semanticNotes: string[];
+};
+
 export function scoreReply(
   customer: Customer,
   round: CustomerRound,
@@ -86,26 +92,37 @@ export function scoreReply(
   const customerModifier = getCustomerTypeModifier(customer.type, card.tags);
   const sequenceModifier = getSequenceModifier(card, context);
 
+  const aiJudgment = getAiJudgment(context.aiAssessment);
+
   const delta: MetricDelta = {
     satisfaction:
       (card.effects.satisfaction ?? 0) +
       preferredHits * replyScoring.preferredSatisfactionPerHit -
       riskyHits * replyScoring.riskySatisfactionPerHit +
       customerModifier.satisfaction +
-      (sequenceModifier.delta.satisfaction ?? 0),
+      (sequenceModifier.delta.satisfaction ?? 0) +
+      (aiJudgment.delta.satisfaction ?? 0),
     anger:
       (card.effects.anger ?? 0) -
       preferredHits * replyScoring.preferredAngerPerHit +
       riskyHits * replyScoring.riskyAngerPerHit +
       customerModifier.anger +
-      (sequenceModifier.delta.anger ?? 0),
-    companyCost: (card.effects.companyCost ?? 0) + (sequenceModifier.delta.companyCost ?? 0),
+      (sequenceModifier.delta.anger ?? 0) +
+      (aiJudgment.delta.anger ?? 0),
+    companyCost:
+      (card.effects.companyCost ?? 0) +
+      (sequenceModifier.delta.companyCost ?? 0) +
+      (aiJudgment.delta.companyCost ?? 0),
     complianceRisk:
       (card.effects.complianceRisk ?? 0) +
       riskyHits * replyScoring.riskyCompliancePerHit +
       customerModifier.complianceRisk +
-      (sequenceModifier.delta.complianceRisk ?? 0),
-    timeLeft: (card.effects.timeLeft ?? 0) + (sequenceModifier.delta.timeLeft ?? 0),
+      (sequenceModifier.delta.complianceRisk ?? 0) +
+      (aiJudgment.delta.complianceRisk ?? 0),
+    timeLeft:
+      (card.effects.timeLeft ?? 0) +
+      (sequenceModifier.delta.timeLeft ?? 0) +
+      (aiJudgment.delta.timeLeft ?? 0),
   };
 
   const reactionScore =
@@ -119,8 +136,7 @@ export function scoreReply(
       : reactionScore <= replyScoring.reactionFailureAt
         ? "failure"
         : "neutral";
-  const reactionKind = context.aiAssessment?.reactionKind ?? fallbackReactionKind;
-  const semanticNotes = getAssessmentNotes(context.aiAssessment);
+  const reactionKind = aiJudgment.reactionKind ?? fallbackReactionKind;
   const feedback = buildReplyFeedback(
     card,
     round,
@@ -128,7 +144,7 @@ export function scoreReply(
     reactionKind,
     sequenceModifier.comboNotes,
     sequenceModifier.timingRiskNotes,
-    semanticNotes,
+    aiJudgment.semanticNotes,
   );
 
   return { delta, reactionKind, feedback };
@@ -374,15 +390,97 @@ function getAssessmentNotes(assessment?: ReplyAssessment) {
 
   const notes: string[] = [];
 
+  if (assessment.customerIntent) {
+    notes.push(getCustomerIntentNote(assessment.customerIntent, assessment.issueResolved));
+  }
+
   if (assessment.coachingNote) {
     notes.push(assessment.coachingNote);
+  }
+
+  if (assessment.nextAgentFocus && !assessment.issueResolved) {
+    notes.push(`下一句建议补：${assessment.nextAgentFocus}`);
   }
 
   if (assessment.confidence !== undefined && assessment.confidence < 0.45) {
     notes.push("这句表达偏含糊，客户可能只感到被安抚，未看到明确动作");
   }
 
-  return notes.slice(0, 2);
+  return notes.slice(0, 3);
+}
+
+function getAiJudgment(assessment?: ReplyAssessment): AiJudgment {
+  if (!assessment) {
+    return {
+      delta: {},
+      semanticNotes: [],
+    };
+  }
+
+  const intentModifier = getCustomerIntentModifier(assessment);
+
+  return {
+    delta: intentModifier.delta,
+    reactionKind: intentModifier.reactionKind ?? assessment.reactionKind,
+    semanticNotes: getAssessmentNotes(assessment),
+  };
+}
+
+function getCustomerIntentModifier(assessment: ReplyAssessment): {
+  delta: MetricDelta;
+  reactionKind?: ReplyReactionKind;
+} {
+  if (assessment.customerIntent === "accepted" || assessment.issueResolved) {
+    return {
+      delta: { satisfaction: 5, anger: -4 },
+      reactionKind: "success",
+    };
+  }
+
+  if (assessment.customerIntent === "escalating") {
+    return {
+      delta: { satisfaction: -8, anger: 10, complianceRisk: 6 },
+      reactionKind: "failure",
+    };
+  }
+
+  if (assessment.customerIntent === "needs_info") {
+    return {
+      delta: { satisfaction: -2, anger: 3 },
+      reactionKind: assessment.reactionKind === "failure" ? "failure" : "neutral",
+    };
+  }
+
+  if (assessment.customerIntent === "still_concerned") {
+    return {
+      delta: { anger: 2 },
+      reactionKind: assessment.reactionKind === "failure" ? "failure" : "neutral",
+    };
+  }
+
+  return {
+    delta: {},
+    reactionKind: assessment.reactionKind,
+  };
+}
+
+function getCustomerIntentNote(
+  intent: NonNullable<ReplyAssessment["customerIntent"]>,
+  issueResolved?: boolean,
+) {
+  if (issueResolved || intent === "accepted") {
+    return "客户状态：已接受当前方案";
+  }
+
+  if (intent === "escalating") {
+    return "客户状态：有升级或投诉倾向";
+  }
+
+  if (intent === "needs_info") {
+    return "客户状态：还缺关键信息";
+  }
+
+  return "客户状态：仍有顾虑";
 }
 
 function formatSignedMetric(metric: keyof Metrics, value: number) {
