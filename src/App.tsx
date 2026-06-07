@@ -43,9 +43,9 @@ const firstDay = defaultSupportMode.days[0];
 
 export default function App() {
   // 职业进度持久化在 meta 层（独立于 per-run GameState，跨浏览器会话保存）。
-  const { meta, selectMode, selectDay, recordDayResult, resetCareer } = useMetaProgress();
+  const { meta, applyRemoteMeta, selectMode, selectDay, recordDayResult, resetCareer } = useMetaProgress();
   const { user, loading: authLoading, login, logout } = useAuth();
-  useProgressSync(user ?? null, meta);
+  useProgressSync(user ?? null, meta, applyRemoteMeta);
   const currentSupportMode = getSupportMode(meta.activeModeId);
   const currentModeProgress = getModeProgress(meta, currentSupportMode.id);
   const { currentDayId, unlockedDayIds, bestGrades } = currentModeProgress;

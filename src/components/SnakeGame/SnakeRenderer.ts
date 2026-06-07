@@ -3,7 +3,6 @@ import type { GameSnapshot } from "./useSnakeGame";
 
 const CELL = 26;
 const FRAME_BUDGET_MS = 18;
-const LOW_DETAIL_MS = 1200;
 const RENDER_BEHIND_MS = 80;
 const MAX_LOCAL_PREDICT_MS = 130;
 const BUFFER_SIZE = 6;
@@ -40,7 +39,25 @@ export interface SnakeRenderer {
   dispose: () => void;
 }
 
+// LRU sprite cache — cap at 128 entries to avoid unbounded memory growth / GC pauses
+const SPRITE_CACHE_MAX = 128;
 const spriteCache = new Map<string, SpriteCanvas>();
+function getSpriteCached(key: string, factory: () => SpriteCanvas): SpriteCanvas {
+  const hit = spriteCache.get(key);
+  if (hit) {
+    // Move to end (most-recently-used)
+    spriteCache.delete(key);
+    spriteCache.set(key, hit);
+    return hit;
+  }
+  const canvas = factory();
+  if (spriteCache.size >= SPRITE_CACHE_MAX) {
+    // Evict LRU (first entry)
+    spriteCache.delete(spriteCache.keys().next().value!);
+  }
+  spriteCache.set(key, canvas);
+  return canvas;
+}
 let spritesWarmed = false;
 
 function getContext2d(canvas: RenderCanvas | SpriteCanvas): RenderContext | null {
@@ -59,24 +76,21 @@ function createSpriteCanvas(size: number): SpriteCanvas {
 
 function getSprite(emoji: string, glowColor: string, size: number): SpriteCanvas {
   const key = `${emoji}:${glowColor}:${size}`;
-  const cached = spriteCache.get(key);
-  if (cached) return cached;
-
-  const canvas = createSpriteCanvas(size * 2);
-  const ctx = getContext2d(canvas);
-  if (!ctx) return canvas;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (glowColor) {
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = size * 0.7;
-  }
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = `${size - 2}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", serif`;
-  ctx.fillText(emoji, size, size);
-  spriteCache.set(key, canvas);
-  return canvas;
+  return getSpriteCached(key, () => {
+    const canvas = createSpriteCanvas(size * 2);
+    const ctx = getContext2d(canvas);
+    if (!ctx) return canvas;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (glowColor) {
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = size * 0.7;
+    }
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `${size - 2}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", serif`;
+    ctx.fillText(emoji, size, size);
+    return canvas;
+  });
 }
 
 function warmSprites() {
@@ -124,7 +138,8 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   const prevIndexMaps = new Map<string, Map<number, { x: number; y: number }>>();
   const visibleSegs: VisibleSeg[] = [];
   const tmpPoint = { x: 0, y: 0 };
-  let lowDetailUntil = 0;
+  // Adaptive quality: smooth EMA of recent frame times, skip expensive effects when slow
+  let frameTimeEma = 16;
   let mapSize = options.mapSize;
   const camera = { x: mapSize / 2, y: mapSize / 2, ready: false };
   let playerId = options.playerId;
@@ -132,6 +147,13 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   let localSteerAngle = 0;
   let localSteerAt = 0;
   let disposed = false;
+
+  // Offscreen grid cache — only redrawn when camera moves
+  let gridCache: SpriteCanvas | null = null;
+  let gridCacheW = 0;
+  let gridCacheH = 0;
+  let gridCacheVx0 = NaN;
+  let gridCacheVy0 = NaN;
 
   const renderer: SnakeRenderer = {
     resize(width, height) {
@@ -297,27 +319,44 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const vxMax = vx0 + W / CELL;
       const vyMax = vy0 + H / CELL;
       const PAD = 2;
-      const lowDetail = frameStart < lowDetailUntil;
+      // Adaptive quality: lowDetail when EMA frame time exceeds budget
+      const lowDetail = frameTimeEma > FRAME_BUDGET_MS;
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0e1a";
       ctx.fillRect(0, 0, W, H);
 
       if (!lowDetail) {
-        ctx.strokeStyle = "rgba(255,255,255,0.04)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let gx = Math.floor(vx0); gx <= Math.ceil(vxMax); gx++) {
-          const sx = (gx - vx0) * CELL;
-          ctx.moveTo(sx, 0);
-          ctx.lineTo(sx, H);
+        // Offscreen grid cache: only rebuild when canvas size or camera tile-offset changes
+        const tileX = Math.floor(vx0);
+        const tileY = Math.floor(vy0);
+        if (
+          !gridCache ||
+          gridCacheW !== W || gridCacheH !== H ||
+          gridCacheVx0 !== tileX || gridCacheVy0 !== tileY
+        ) {
+          gridCacheW = W; gridCacheH = H;
+          gridCacheVx0 = tileX; gridCacheVy0 = tileY;
+          if (!gridCache || (gridCache as OffscreenCanvas).width !== W) {
+            gridCache = createSpriteCanvas(W);
+            (gridCache as OffscreenCanvas).height = H;
+          }
+          const gc = getContext2d(gridCache)!;
+          gc.clearRect(0, 0, W, H);
+          gc.strokeStyle = "rgba(255,255,255,0.04)";
+          gc.lineWidth = 1;
+          gc.beginPath();
+          for (let gx = tileX; gx <= Math.ceil(vxMax); gx++) {
+            const sx = (gx - vx0) * CELL;
+            gc.moveTo(sx, 0); gc.lineTo(sx, H);
+          }
+          for (let gy = tileY; gy <= Math.ceil(vyMax); gy++) {
+            const sy = (gy - vy0) * CELL;
+            gc.moveTo(0, sy); gc.lineTo(W, sy);
+          }
+          gc.stroke();
         }
-        for (let gy = Math.floor(vy0); gy <= Math.ceil(vyMax); gy++) {
-          const sy = (gy - vy0) * CELL;
-          ctx.moveTo(0, sy);
-          ctx.lineTo(W, sy);
-        }
-        ctx.stroke();
+        ctx.drawImage(gridCache as CanvasImageSource, 0, 0);
       }
 
       ctx.save();
@@ -573,9 +612,8 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         if (hy > mapSize - WARN) drawWarn(ctx.createLinearGradient(0, H, 0, H * 0.7), alpha(mapSize - hy));
       }
 
-      if (!lowDetail && performance.now() - frameStart > FRAME_BUDGET_MS) {
-        lowDetailUntil = performance.now() + LOW_DETAIL_MS;
-      }
+      // EMA of frame time — drives adaptive quality next frame (no hysteresis cliff)
+      frameTimeEma = frameTimeEma * 0.85 + (performance.now() - frameStart) * 0.15;
     },
 
     dispose() {
@@ -584,6 +622,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       prevBodies.clear();
       prevIndexMaps.clear();
       visibleSegs.length = 0;
+      gridCache = null;
     },
   };
 

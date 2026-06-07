@@ -128,6 +128,9 @@ export class SnakeRoom {
   private clients: Map<string, ClientConnection> = new Map();
   private game: GameState = { snakes: new Map(), foods: new Map(), foodGrid: new Map(), tick: 0 };
   private tickTimer: ReturnType<typeof setInterval> | null = null;
+  // Persistent collision grid — rebuilt only on snake death/spawn, incremented on move
+  private collisionGrid: Map<string, BodySegmentRef[]> = new Map();
+  private collisionGridDirty = true;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -223,7 +226,8 @@ export class SnakeRoom {
     }
 
     // 碰撞检测（头碰他人蛇身）
-    const collisionGrid = this.buildCollisionGrid();
+    if (this.collisionGridDirty) this.rebuildCollisionGrid();
+    const collisionGrid = this.collisionGrid;
     const deaths: Array<{ killer: string; victim: string }> = [];
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
@@ -349,6 +353,7 @@ export class SnakeRoom {
       const distance = actualSteps - i;
       body[i] = { x: head.x + dx * distance, y: head.y + dy * distance };
     }
+    this.collisionGridDirty = true;
   }
 
   private updateActiveBoost(snake: Snake, now: number) {
@@ -456,6 +461,21 @@ export class SnakeRoom {
       const botId = `bot_${crypto.randomUUID().slice(0, 6)}`;
       this.spawnSnake(botId, BOT_NAMES[idx], null, true);
     }
+  }
+
+  private rebuildCollisionGrid() {
+    const grid = this.collisionGrid;
+    grid.clear();
+    for (const snake of this.game.snakes.values()) {
+      if (!snake.alive) continue;
+      for (const seg of snake.body) {
+        const key = SnakeRoom.collisionBucketKey(seg.x, seg.y);
+        let bucket = grid.get(key);
+        if (!bucket) { bucket = []; grid.set(key, bucket); }
+        bucket.push({ snakeId: snake.id, x: seg.x, y: seg.y });
+      }
+    }
+    this.collisionGridDirty = false;
   }
 
   private buildCollisionGrid(): Map<string, BodySegmentRef[]> {
@@ -579,6 +599,7 @@ export class SnakeRoom {
     }
     snake.body = [];
     snake.effects = {} as SnakeEffects;
+    this.collisionGridDirty = true;
     if (!snake.isBot) void this.saveScore(snake);
   }
 

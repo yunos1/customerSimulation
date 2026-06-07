@@ -14,6 +14,7 @@ import type { SupportModeId } from "../content/career";
 
 export interface UseMetaProgress {
   meta: MetaState;
+  applyRemoteMeta: (remote: unknown) => void;
   /** 切换客服玩法模式。 */
   selectMode: (modeId: SupportModeId) => void;
   /** 切换当前选中的天（进入值班时调用）。 */
@@ -61,9 +62,13 @@ export function useMetaProgress(): UseMetaProgress {
     setMeta((prev) => mergeDayResult(prev, result));
   }, []);
 
+  const applyRemoteMeta = useCallback((remote: unknown) => {
+    setMeta(migrate({ version: 2, data: remote }));
+  }, []);
+
   const resetCareer = useCallback(() => {
     setMeta(defaultMeta());
   }, []);
 
-  return { meta, selectMode, selectDay, recordDayResult, resetCareer };
+  return { meta, applyRemoteMeta, selectMode, selectDay, recordDayResult, resetCareer };
 }
