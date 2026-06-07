@@ -68,7 +68,7 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub, 
     : null;
   const bodyLength = me?.bodyLength ?? me?.body.length ?? 0;
   const canActiveBoost = !!me?.alive && bodyLength >= ACTIVE_BOOST_MIN_LENGTH && me.score >= ACTIVE_BOOST_SCORE_COST;
-  const isActiveBoosting = boostHeld || Date.now() < (me?.effects?.activeBoost ?? 0);
+  const isActiveBoosting = boostHeld || !!me?.effects?.activeBoost;
 
   useEffect(() => {
     if (canActiveBoost || !boostHeld) return;
@@ -110,7 +110,7 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub, 
         </button>
         <span style={{ color: "#fff", fontWeight: "bold", fontSize: 15 }}>🐍 摸鱼时刻 · 多人贪吃蛇</span>
         <span style={{ color: "#7cf", fontSize: 13 }}>
-          在线 {snapshot?.snakes.filter((s) => s.alive && !s.isBot).length ?? 0} 人
+          在线 {snapshot?.onlineCount ?? 0} 人
         </span>
       </div>
 

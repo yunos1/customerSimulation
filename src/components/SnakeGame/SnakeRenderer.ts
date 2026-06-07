@@ -163,11 +163,12 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (disposed || !buffer.length) return;
 
       const frameStart = performance.now();
+      const wallNow = Date.now();
       const W = canvas.width;
       const H = canvas.height;
       if (W <= 0 || H <= 0) return;
 
-      const renderT = performance.now() - RENDER_BEHIND_MS;
+      const renderT = frameStart - RENDER_BEHIND_MS;
       let from: GameSnapshot | null = null;
       let to: GameSnapshot | null = null;
       for (let i = buffer.length - 1; i >= 0; i--) {
@@ -184,7 +185,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
       if (!to) to = from;
 
-      const latestArrivedAt = to.arrivedAt ?? performance.now();
+      const latestArrivedAt = to.arrivedAt ?? frameStart;
       const ownPredictionMs = Math.min(
         MAX_LOCAL_PREDICT_MS,
         Math.max(0, Math.max(renderT - latestArrivedAt, localSteerAt - latestArrivedAt)),
@@ -242,17 +243,16 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       function displayAngle(serverAngle: number) {
-        return performance.now() - localSteerAt < 600 ? localSteerAngle : serverAngle;
+        return frameStart - localSteerAt < 600 ? localSteerAngle : serverAngle;
       }
 
-      function predictionDistance(snake: GameSnapshot["snakes"][number]) {
+      function predictionDistance(snake: GameSnapshot["snakes"][number], wallNow: number) {
         if (snake.id !== playerId || ownPredictionMs <= 0) return 0;
         const effects = snake.effects ?? {};
-        const wallNow = Date.now();
         const speedMul = wallNow < (effects.boost ?? 0)
           ? 2
           : wallNow < (effects.activeBoost ?? 0)
-            ? 1.6
+            ? 2
             : wallNow < (effects.slow ?? 0)
               ? 0.5
               : 1;
@@ -260,16 +260,15 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       function applyPrediction(
-        snake: GameSnapshot["snakes"][number],
         point: { x: number; y: number },
         bodyIndex: number,
+        predictionDx: number,
+        predictionDy: number,
       ) {
-        const distance = predictionDistance(snake);
-        if (distance <= 0) return point;
+        if (predictionDx === 0 && predictionDy === 0) return point;
         const fade = Math.max(0.2, 1 - bodyIndex * 0.08);
-        const angle = (displayAngle(snake.angle) * Math.PI) / 180;
-        point.x += Math.cos(angle) * distance * fade;
-        point.y += Math.sin(angle) * distance * fade;
+        point.x += predictionDx * fade;
+        point.y += predictionDy * fade;
         return point;
       }
 
@@ -278,7 +277,9 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       let targetCy = mapSize / 2;
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
-        applyPrediction(me, tmpPoint, 0);
+        const distance = predictionDistance(me, wallNow);
+        const angle = (displayAngle(me.angle) * Math.PI) / 180;
+        applyPrediction(tmpPoint, 0, Math.cos(angle) * distance, Math.sin(angle) * distance);
         targetCx = tmpPoint.x;
         targetCy = tmpPoint.y;
       }
@@ -346,7 +347,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       ctx.stroke();
       ctx.restore();
 
-      const now = performance.now();
+      const now = frameStart;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       for (const food of snapshot.foods) {
@@ -430,12 +431,22 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         const skin = SKINS[snake.skinId % SKINS.length];
         const isMe = snake.id === playerId;
         const bodyIndexes = snake.bodyIndexes;
+        let predictionDx = 0;
+        let predictionDy = 0;
+        if (isMe) {
+          const distance = predictionDistance(snake, wallNow);
+          if (distance > 0) {
+            const angle = (displayAngle(snake.angle) * Math.PI) / 180;
+            predictionDx = Math.cos(angle) * distance;
+            predictionDy = Math.sin(angle) * distance;
+          }
+        }
         let visibleCount = 0;
 
         for (let i = 0; i < snake.body.length; i++) {
           const bodyIndex = bodyIndexes?.[i] ?? i;
           lerpSeg(snake.id, bodyIndex, snake.body[i], tmpPoint);
-          applyPrediction(snake, tmpPoint, bodyIndex);
+          applyPrediction(tmpPoint, bodyIndex, predictionDx, predictionDy);
           const wx = tmpPoint.x;
           const wy = tmpPoint.y;
           if (wx < vx0 - PAD || wx > vxMax + PAD || wy < vy0 - PAD || wy > vyMax + PAD) continue;
@@ -529,7 +540,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         const head = snake.body[0];
         if ((!lowDetail || isMe) && head.x >= vx0 - PAD && head.x <= vxMax + PAD) {
           lerpSeg(snake.id, bodyIndexes?.[0] ?? 0, head, tmpPoint);
-          applyPrediction(snake, tmpPoint, bodyIndexes?.[0] ?? 0);
+          applyPrediction(tmpPoint, bodyIndexes?.[0] ?? 0, predictionDx, predictionDy);
           const nhx = (tmpPoint.x - vx0) * CELL;
           const nhy = (tmpPoint.y - vy0) * CELL;
           ctx.shadowColor = skin.glow ?? "transparent";
@@ -545,7 +556,6 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
 
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
-        applyPrediction(me, tmpPoint, 0);
         const hx = tmpPoint.x;
         const hy = tmpPoint.y;
         const WARN = 50;

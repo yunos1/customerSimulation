@@ -30,13 +30,14 @@ export interface GameSnapshot {
   snakes: SnakeInfo[];
   foods: FoodInfo[];
   leaderboard: LeaderEntry[];
+  onlineCount?: number;
   // 客户端记录的本地到达时间（performance.now()），供 render-behind 插值
   arrivedAt?: number;
 }
 
 // render-behind 缓冲保留最近 N 帧，渲染时刻回退 ~1.5 tick，永远落在两帧之间插值
 const BUFFER_SIZE = 6;
-const SNAPSHOT_STATE_INTERVAL_MS = 200;
+const SNAPSHOT_STATE_INTERVAL_MS = 500;
 type SnapshotListener = (snapshot: GameSnapshot) => void;
 
 export function useSnakeGame(token: string | null) {

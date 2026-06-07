@@ -1,5 +1,5 @@
 // 主游戏组件：整合 Canvas、MiniMap、HUD、输入
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { GameCanvas } from "./GameCanvas";
 import { GameHUD } from "./GameHUD";
 import { MiniMap } from "./MiniMap";
@@ -43,6 +43,11 @@ export function SnakeGame({ token, onBackToHub }: Props) {
     setTimeout(onBackToHub, 120);
   }, [leave, onBackToHub]);
 
+  const isDead = useMemo(
+    () => snapshot?.snakes.find((snake) => snake.id === playerId)?.alive === false,
+    [snapshot, playerId],
+  );
+
   if (!connected) {
     return (
       <div style={{
@@ -65,7 +70,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
         subscribeSnapshot={subscribeSnapshot}
         onRendererReady={handleRendererReady}
       />
-      <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={snapshot?.snakes.find(s => s.id === playerId)?.alive === false} />
+      <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={isDead} />
       <GameHUD
         snapshot={snapshot}
         playerId={playerId}
