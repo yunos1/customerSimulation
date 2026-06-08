@@ -9,6 +9,12 @@ if (import.meta.env.PROD) {
   (["log", "warn", "error", "info", "debug"] as const).forEach((m) => {
     console[m] = noop;
   });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "F12" || (e.ctrlKey && e.shiftKey && ["I", "J", "C"].includes(e.key))) {
+      e.preventDefault();
+    }
+  });
+  document.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
 createRoot(document.getElementById("root")!).render(
