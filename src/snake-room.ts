@@ -25,6 +25,11 @@ const VIEW_RADIUS = 60;
 const BODY_VIEW_PADDING = 4;
 // 近距离蛇发完整 body，远处蛇只发头（小地图够用），减少序列化开销
 const FULL_BODY_RADIUS = 80; // 世界格数
+const VIEW_FOOD_CACHE_BUCKET = 20;
+const VIEW_FOOD_CACHE_PADDING = 30;
+const VIEW_BODY_CACHE_PADDING = 16;
+const MAX_OWN_VISIBLE_BODY_SEGMENTS = 260;
+const MAX_OTHER_VISIBLE_BODY_SEGMENTS = 160;
 // AI bot 常驻数量
 const BOT_TARGET = 10;
 const BOT_NAMES = ["小红","小蓝","老王","阿强","小花","大壮","小鹿","阿宝","老虎","小鱼"];
@@ -75,6 +80,29 @@ const EFFECT_DUR: Record<string, number> = {
 type Vec2 = { x: number; y: number };
 type BodySegmentRef = { snakeId: string; x: number; y: number };
 type ClientConnection = { ws: WebSocket; snakeId: string };
+type SnakeWire = {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+  skinId: number;
+  body: Vec2[];
+  angle: number;
+  bodyLength: number;
+  alive: boolean;
+  score: number;
+  kills: number;
+  respawnAt: number;
+  isBot: boolean;
+  effects: Partial<SnakeEffects>;
+  bodyIndexes?: number[];
+  bodyHead?: boolean;
+  bodyPartial?: boolean;
+};
+type ViewCacheEntry = {
+  foods: Food[];
+  snakes: SnakeWire[];
+  payloadText?: string;
+};
 
 interface SnakeEffects {
   boost?: number; slow?: number; shield?: number;
@@ -100,6 +128,8 @@ interface Snake {
   boostHeld: boolean;
   nextBoostBurnAt: number;
   sessionRecorded: boolean;
+  lastSavedScore: number;
+  lastSavedKills: number;
   botTarget?: Vec2;
   botTargetTick?: number;
 }
@@ -131,6 +161,10 @@ export class SnakeRoom {
   // Persistent collision grid — rebuilt only on snake death/spawn, incremented on move
   private collisionGrid: Map<string, BodySegmentRef[]> = new Map();
   private collisionGridDirty = true;
+  private readonly bodyRefPool: BodySegmentRef[] = [];
+  private readonly scratchSnakeWire: SnakeWire[] = [];
+  private readonly scratchViewCache: Map<string, ViewCacheEntry> = new Map();
+  private readonly scratchLeaderboard: { id: string; username: string; score: number; kills: number; isBot: boolean }[] = [];
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -184,6 +218,7 @@ export class SnakeRoom {
         const snake = this.game.snakes.get(id);
         if (snake && !snake.isBot) void this.saveScore(snake, { recordSession: true });
         this.game.snakes.delete(id);
+        this.collisionGridDirty = true;
       }
       if (this.clients.size === 0) this.stopTick();
     });
@@ -289,15 +324,8 @@ export class SnakeRoom {
     }
 
     // 广播
-    const leaderboard = Array.from(this.game.snakes.values())
-      .filter((s) => s.alive)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 50)
-      .map((s) => ({ id: s.id, username: s.username, score: s.score, kills: s.kills, isBot: s.isBot }));
-    let onlineCount = 0;
-    for (const snake of this.game.snakes.values()) {
-      if (snake.alive && !snake.isBot) onlineCount++;
-    }
+    const leaderboard = this.buildLeaderboard();
+    const onlineCount = this.onlineHumanCount();
     this.broadcastDelta(leaderboard, onlineCount, now);
 
     if (this.game.tick % SAVE_INTERVAL_TICKS === 0) {
@@ -345,7 +373,13 @@ export class SnakeRoom {
     if (length === 0) return;
     const actualSteps = Math.min(steps, length);
     const head = body[0];
+    const canUpdateCollisionGrid = !this.collisionGridDirty;
 
+    if (canUpdateCollisionGrid) {
+      for (let i = length - actualSteps; i < length; i++) {
+        this.removeCollisionSegment(snake.id, body[i].x, body[i].y);
+      }
+    }
     for (let i = length - 1; i >= actualSteps; i--) {
       body[i] = body[i - actualSteps];
     }
@@ -353,7 +387,11 @@ export class SnakeRoom {
       const distance = actualSteps - i;
       body[i] = { x: head.x + dx * distance, y: head.y + dy * distance };
     }
-    this.collisionGridDirty = true;
+    if (canUpdateCollisionGrid) {
+      for (let i = 0; i < actualSteps; i++) {
+        this.addCollisionSegment(snake.id, body[i].x, body[i].y);
+      }
+    }
   }
 
   private updateActiveBoost(snake: Snake, now: number) {
@@ -371,6 +409,7 @@ export class SnakeRoom {
     snake.score = Math.max(0, snake.score - ACTIVE_BOOST_SCORE_COST);
     for (let i = 0; i < ACTIVE_BOOST_LENGTH_COST && snake.body.length > INIT_LENGTH; i++) {
       snake.body.pop();
+      this.collisionGridDirty = true;
     }
     snake.effects.activeBoost = now + ACTIVE_BOOST_DURATION_MS;
     snake.nextBoostBurnAt = now + ACTIVE_BOOST_BURN_INTERVAL_MS;
@@ -388,6 +427,7 @@ export class SnakeRoom {
       snake.score += food.value * mul;
       snake.bestScore = Math.max(snake.bestScore ?? 0, snake.score);
       snake.body.push({ ...snake.body[snake.body.length - 1] });
+      this.collisionGridDirty = true;
       return;
     }
 
@@ -404,7 +444,10 @@ export class SnakeRoom {
         // 荆棘扣分，并截短蛇（弹出尾节）
         const penalty = Math.abs(SKILLS.find((s) => s.key === "thorn")!.value);
         snake.score = Math.max(0, snake.score - penalty);
-        if (snake.body.length > INIT_LENGTH) snake.body.pop();
+        if (snake.body.length > INIT_LENGTH) {
+          snake.body.pop();
+          this.collisionGridDirty = true;
+        }
         break;
       }
       case "boost":
@@ -416,6 +459,7 @@ export class SnakeRoom {
         snake.effects[sk] = now + EFFECT_DUR[sk];
         snake.body.push({ ...snake.body[snake.body.length - 1] });
         snake.bestScore = Math.max(snake.bestScore ?? 0, snake.score);
+        this.collisionGridDirty = true;
         break;
     }
   }
@@ -465,34 +509,44 @@ export class SnakeRoom {
 
   private rebuildCollisionGrid() {
     const grid = this.collisionGrid;
+    for (const bucket of grid.values()) {
+      this.bodyRefPool.push(...bucket);
+      bucket.length = 0;
+    }
     grid.clear();
     for (const snake of this.game.snakes.values()) {
       if (!snake.alive) continue;
       for (const seg of snake.body) {
-        const key = SnakeRoom.collisionBucketKey(seg.x, seg.y);
-        let bucket = grid.get(key);
-        if (!bucket) { bucket = []; grid.set(key, bucket); }
-        bucket.push({ snakeId: snake.id, x: seg.x, y: seg.y });
+        this.addCollisionSegment(snake.id, seg.x, seg.y);
       }
     }
     this.collisionGridDirty = false;
   }
 
-  private buildCollisionGrid(): Map<string, BodySegmentRef[]> {
-    const grid = new Map<string, BodySegmentRef[]>();
-    for (const snake of this.game.snakes.values()) {
-      if (!snake.alive) continue;
-      for (const seg of snake.body) {
-        const key = SnakeRoom.collisionBucketKey(seg.x, seg.y);
-        let bucket = grid.get(key);
-        if (!bucket) {
-          bucket = [];
-          grid.set(key, bucket);
-        }
-        bucket.push({ snakeId: snake.id, x: seg.x, y: seg.y });
-      }
+  private addCollisionSegment(snakeId: string, x: number, y: number) {
+    const key = SnakeRoom.collisionBucketKey(x, y);
+    let bucket = this.collisionGrid.get(key);
+    if (!bucket) { bucket = []; this.collisionGrid.set(key, bucket); }
+    const ref = this.bodyRefPool.pop() ?? { snakeId, x, y };
+    ref.snakeId = snakeId;
+    ref.x = x;
+    ref.y = y;
+    bucket.push(ref);
+  }
+
+  private removeCollisionSegment(snakeId: string, x: number, y: number) {
+    const key = SnakeRoom.collisionBucketKey(x, y);
+    const bucket = this.collisionGrid.get(key);
+    if (!bucket) return;
+    for (let i = bucket.length - 1; i >= 0; i--) {
+      const seg = bucket[i];
+      if (seg.snakeId !== snakeId || seg.x !== x || seg.y !== y) continue;
+      bucket[i] = bucket[bucket.length - 1];
+      bucket.pop();
+      this.bodyRefPool.push(seg);
+      if (bucket.length === 0) this.collisionGrid.delete(key);
+      return;
     }
-    return grid;
   }
 
   private findBodyHit(grid: Map<string, BodySegmentRef[]>, ownId: string, x: number, y: number): BodySegmentRef | null {
@@ -615,6 +669,7 @@ export class SnakeRoom {
     snake.body = [];
     for (let i = 0; i < INIT_LENGTH; i++) snake.body.push({ x: pos.x - i, y: pos.y });
     snake.angle = 0;
+    this.collisionGridDirty = true;
     if (snake.isBot) {
       snake.botTarget = this.randomBotTarget(pos);
       snake.botTargetTick = this.game.tick;
@@ -633,9 +688,12 @@ export class SnakeRoom {
       isBot, effects: {} as SnakeEffects, stepAccum: 0,
       boostHeld: false, nextBoostBurnAt: 0,
       sessionRecorded: false,
+      lastSavedScore: 0,
+      lastSavedKills: 0,
       botTarget: isBot ? this.randomBotTarget(pos) : undefined,
       botTargetTick: isBot ? this.game.tick : undefined,
     });
+    this.collisionGridDirty = true;
   }
 
   private spawnFood() {
@@ -699,6 +757,32 @@ export class SnakeRoom {
     return out;
   }
 
+  private buildLeaderboard() {
+    const leaderboard = this.scratchLeaderboard;
+    leaderboard.length = 0;
+    for (const snake of this.game.snakes.values()) {
+      if (!snake.alive) continue;
+      leaderboard.push({
+        id: snake.id,
+        username: snake.username,
+        score: snake.score,
+        kills: snake.kills,
+        isBot: snake.isBot,
+      });
+    }
+    leaderboard.sort((a, b) => b.score - a.score);
+    if (leaderboard.length > 50) leaderboard.length = 50;
+    return leaderboard;
+  }
+
+  private onlineHumanCount(): number {
+    let onlineCount = 0;
+    for (const snake of this.game.snakes.values()) {
+      if (snake.alive && !snake.isBot) onlineCount++;
+    }
+    return onlineCount;
+  }
+
   private randomEmptyPos(): Vec2 {
     for (let i = 0; i < 100; i++) {
       const x = rand(MAP_SIZE);
@@ -740,43 +824,64 @@ export class SnakeRoom {
     onlineCount: number,
     now: number,
   ) {
-    // 蛇列表（一次序列化，逐客户端按视距裁剪 body）
-    const snakeInfoFull = Array.from(this.game.snakes.values()).map((s) => ({
-      id: s.id, username: s.username, avatarUrl: s.avatarUrl,
-      skinId: s.skinId, body: s.body, angle: s.angle,
-      bodyLength: s.body.length,
-      alive: s.alive, score: s.score, kills: s.kills, respawnAt: s.respawnAt,
-      isBot: s.isBot,
-      effects: activeEffects(s.effects, now),
-    }));
+    const snakeInfoFull = this.scratchSnakeWire;
+    snakeInfoFull.length = 0;
+    for (const s of this.game.snakes.values()) {
+      snakeInfoFull.push({
+        id: s.id, username: s.username, avatarUrl: s.avatarUrl,
+        skinId: s.skinId, body: s.body, angle: s.angle,
+        bodyLength: s.body.length,
+        alive: s.alive, score: s.score, kills: s.kills, respawnAt: s.respawnAt,
+        isBot: s.isBot,
+        effects: activeEffects(s.effects, now),
+      });
+    }
 
-    for (const [clientId, client] of this.clients) {
+    const viewCache = this.scratchViewCache;
+    viewCache.clear();
+    for (const [, client] of this.clients) {
       const id = client.snakeId;
       const snake = this.game.snakes.get(id);
       if (!snake) continue;
 
       const cx = snake.alive && snake.body.length ? snake.body[0].x : MAP_SIZE / 2;
       const cy = snake.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
-      const vr = VIEW_RADIUS;
-
-      // 逐客户端按视野裁剪蛇身，长蛇不会把整条 body 都发给前端。
-      const snakes = snakeInfoFull.map((s) => {
-        if (!s.alive || !s.body.length) return s;
-        return this.clipSnakeBodyForView(s, id, cx, cy, vr);
+      const key = this.viewCacheKey(cx, cy);
+      if (viewCache.has(key)) continue;
+      const viewCx = Math.round(cx / VIEW_FOOD_CACHE_BUCKET) * VIEW_FOOD_CACHE_BUCKET;
+      const viewCy = Math.round(cy / VIEW_FOOD_CACHE_BUCKET) * VIEW_FOOD_CACHE_BUCKET;
+      viewCache.set(key, {
+        foods: this.foodsInRange(viewCx, viewCy, VIEW_RADIUS + VIEW_FOOD_CACHE_PADDING),
+        snakes: snakeInfoFull.map((s) => (
+          !s.alive || !s.body.length
+            ? s
+            : this.clipSnakeBodyForView(s, "", viewCx, viewCy, VIEW_RADIUS + VIEW_BODY_CACHE_PADDING, MAX_OWN_VISIBLE_BODY_SEGMENTS)
+        )),
       });
+    }
 
-      const visibleFoods = this.foodsInRange(cx, cy, vr);
-
-      this.sendToClient(clientId, {
-        type: "state", tick: this.game.tick, playerId: id,
-        snakes, foods: visibleFoods, leaderboard, onlineCount,
+    for (const [clientId, client] of this.clients) {
+      const id = client.snakeId;
+      const snake = this.game.snakes.get(id);
+      if (!snake) continue;
+      const cx = snake.alive && snake.body.length ? snake.body[0].x : MAP_SIZE / 2;
+      const cy = snake.alive && snake.body.length ? snake.body[0].y : MAP_SIZE / 2;
+      const cache = viewCache.get(this.viewCacheKey(cx, cy));
+      if (!cache) continue;
+      const payloadText = cache.payloadText ?? JSON.stringify({
+        type: "state", tick: this.game.tick,
+        snakes: cache.snakes, foods: cache.foods, leaderboard, onlineCount,
       });
+      cache.payloadText = payloadText;
+      const playerPrefix = `{"type":"state","tick":${this.game.tick},"playerId":${JSON.stringify(id)},`;
+      const sharedPrefix = `{"type":"state","tick":${this.game.tick},`;
+      this.sendTextToClient(clientId, playerPrefix + payloadText.slice(sharedPrefix.length));
     }
   }
 
   private clipSnakeBodyForView<
     T extends { id: string; body: Vec2[]; alive: boolean },
-  >(snake: T, viewerId: string, cx: number, cy: number, vr: number) {
+  >(snake: T, viewerId: string, cx: number, cy: number, vr: number, maxVisibleSegments?: number) {
     const head = snake.body[0];
     const dx = head.x - cx;
     const dy = head.y - cy;
@@ -790,9 +895,13 @@ export class SnakeRoom {
     const maxY = cy + vr + BODY_VIEW_PADDING;
     const body: Vec2[] = [];
     const bodyIndexes: number[] = [];
+    const maxSegments = maxVisibleSegments
+      ?? (snake.id === viewerId ? MAX_OWN_VISIBLE_BODY_SEGMENTS : MAX_OTHER_VISIBLE_BODY_SEGMENTS);
+    const stride = Math.max(1, Math.ceil(snake.body.length / maxSegments));
     for (let index = 0; index < snake.body.length; index++) {
       const seg = snake.body[index];
       if (index === 0 || (seg.x >= minX && seg.x <= maxX && seg.y >= minY && seg.y <= maxY)) {
+        if (index > 0 && body.length >= maxSegments && index % stride !== 0) continue;
         body.push(seg);
         bodyIndexes.push(index);
       }
@@ -819,10 +928,18 @@ export class SnakeRoom {
   }
 
   private sendToClient(clientId: string, data: unknown) {
+    this.sendTextToClient(clientId, JSON.stringify(data));
+  }
+
+  private sendTextToClient(clientId: string, text: string) {
     const client = this.clients.get(clientId);
     if (client) {
-      try { client.ws.send(JSON.stringify(data)); } catch { /* closed */ }
+      try { client.ws.send(text); } catch { /* closed */ }
     }
+  }
+
+  private viewCacheKey(cx: number, cy: number): string {
+    return `${Math.round(cx / VIEW_FOOD_CACHE_BUCKET)},${Math.round(cy / VIEW_FOOD_CACHE_BUCKET)}`;
   }
 
   private humanPlayerCount(): number {
@@ -846,6 +963,7 @@ export class SnakeRoom {
   private async saveScore(snake: Snake, options: { recordSession?: boolean } = {}) {
     const scoreToSave = Math.max(snake.bestScore ?? 0, snake.score);
     if (snake.id.startsWith("guest_") || snake.id.startsWith("bot_") || scoreToSave === 0) return;
+    if (!options.recordSession && scoreToSave <= snake.lastSavedScore && snake.kills <= snake.lastSavedKills) return;
     const now = Math.floor(Date.now() / 1000);
     await this.env.DB.prepare(
       `INSERT INTO snake_scores (user_id, username, avatar_url, score, kills, skin_id, updated_at)
@@ -858,6 +976,8 @@ export class SnakeRoom {
          skin_id=excluded.skin_id,
          updated_at=excluded.updated_at`
     ).bind(snake.id, snake.username, snake.avatarUrl, scoreToSave, snake.kills, snake.skinId, now).run();
+    snake.lastSavedScore = Math.max(snake.lastSavedScore, scoreToSave);
+    snake.lastSavedKills = Math.max(snake.lastSavedKills, snake.kills);
 
     await this.env.DB.prepare(
       `DELETE FROM snake_scores WHERE user_id NOT IN (

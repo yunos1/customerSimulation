@@ -28,6 +28,8 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
   const workerRef = useRef<Worker | null>(null);
   const rendererRef = useRef<SnakeRenderer | null>(null);
   const rafRef = useRef(0);
+  const pendingWorkerSnapshotRef = useRef<{ snapshot: GameSnapshot; tickMs: number; arrivedAgo: number } | null>(null);
+  const workerSnapshotRafRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -120,6 +122,9 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
       if (resizeTimer) clearTimeout(resizeTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
+      if (workerSnapshotRafRef.current) cancelAnimationFrame(workerSnapshotRafRef.current);
+      workerSnapshotRafRef.current = 0;
+      pendingWorkerSnapshotRef.current = null;
       rendererRef.current?.dispose();
       rendererRef.current = null;
       if (workerRef.current) {
@@ -158,12 +163,20 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
       const tickMs = tickMsRef.current || 200;
       const worker = workerRef.current;
       if (worker) {
-        worker.postMessage({
-          type: "snapshot",
+        pendingWorkerSnapshotRef.current = {
           snapshot,
           tickMs,
           arrivedAgo: Math.max(0, performance.now() - (snapshot.arrivedAt ?? performance.now())),
-        });
+        };
+        if (!workerSnapshotRafRef.current) {
+          workerSnapshotRafRef.current = requestAnimationFrame(() => {
+            workerSnapshotRafRef.current = 0;
+            const pending = pendingWorkerSnapshotRef.current;
+            pendingWorkerSnapshotRef.current = null;
+            if (!pending || workerRef.current !== worker) return;
+            worker.postMessage({ type: "snapshot", ...pending });
+          });
+        }
       } else {
         rendererRef.current?.pushSnapshot(snapshot, tickMs);
       }

@@ -11,6 +11,8 @@ type WorkerMessage =
 
 let renderer: SnakeRenderer | null = null;
 let frameId = 0;
+let pendingSnapshot: Extract<WorkerMessage, { type: "snapshot" }> | null = null;
+let pendingSnapshotTimer = 0;
 
 function requestFrame(callback: FrameRequestCallback) {
   if (typeof self.requestAnimationFrame === "function") {
@@ -42,6 +44,15 @@ function stopLoop() {
   frameId = 0;
 }
 
+function flushPendingSnapshot() {
+  pendingSnapshotTimer = 0;
+  if (!renderer || !pendingSnapshot) return;
+  const msg = pendingSnapshot;
+  pendingSnapshot = null;
+  msg.snapshot.arrivedAt = performance.now() - msg.arrivedAgo;
+  renderer.pushSnapshot(msg.snapshot, msg.tickMs);
+}
+
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const msg = event.data;
 
@@ -65,11 +76,18 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   } else if (msg.type === "config") {
     renderer.setConfig(msg);
   } else if (msg.type === "snapshot") {
-    msg.snapshot.arrivedAt = performance.now() - msg.arrivedAgo;
-    renderer.pushSnapshot(msg.snapshot, msg.tickMs);
+    pendingSnapshot = msg;
+    if (!pendingSnapshotTimer) {
+      pendingSnapshotTimer = self.setTimeout(flushPendingSnapshot, 0);
+    }
   } else if (msg.type === "steer") {
     renderer.setLocalSteer(msg.angle);
   } else if (msg.type === "dispose") {
+    if (pendingSnapshotTimer) {
+      self.clearTimeout(pendingSnapshotTimer);
+      pendingSnapshotTimer = 0;
+    }
+    pendingSnapshot = null;
     renderer.dispose();
     renderer = null;
     stopLoop();

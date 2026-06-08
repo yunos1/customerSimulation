@@ -145,9 +145,15 @@ function getSnapshotRenderCache(snapshot: GameSnapshot): SnapshotRenderCache {
     const indexes = snake.bodyIndexes;
     let indexMap: Map<number, { x: number; y: number }> | undefined;
     if (indexes) {
-      indexMap = new Map();
-      for (let i = 0; i < snake.body.length; i++) {
-        indexMap.set(indexes[i] ?? i, snake.body[i]);
+      let contiguous = indexes.length === snake.body.length;
+      for (let i = 0; contiguous && i < indexes.length; i++) {
+        contiguous = indexes[i] === i;
+      }
+      if (!contiguous) {
+        indexMap = new Map();
+        for (let i = 0; i < snake.body.length; i++) {
+          indexMap.set(indexes[i] ?? i, snake.body[i]);
+        }
       }
     }
     bodies.set(snake.id, { body: snake.body, indexMap });
