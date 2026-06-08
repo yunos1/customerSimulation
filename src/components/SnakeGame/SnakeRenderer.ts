@@ -182,7 +182,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   let playerId = options.playerId;
   let tickMs = options.tickMs || 200;
   let localSteerAngle = 0;
-  let localSteerAt = 0;
+  let localSteerAt = Number.NEGATIVE_INFINITY;
   let disposed = false;
 
   const renderer: SnakeRenderer = {
@@ -244,7 +244,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const latestArrivedAt = to.arrivedAt ?? frameStart;
       const ownPredictionMs = Math.min(
         MAX_LOCAL_PREDICT_MS,
-        Math.max(0, frameStart - renderT, localSteerAt - latestArrivedAt),
+        Math.max(0, localSteerAt - latestArrivedAt),
       );
       const fromT = from.arrivedAt ?? 0;
       const toT = to.arrivedAt ?? fromT + tickMs;
