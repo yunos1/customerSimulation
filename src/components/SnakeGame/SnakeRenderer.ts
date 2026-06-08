@@ -4,9 +4,10 @@ import type { GameSnapshot } from "./useSnakeGame";
 const CELL = 26;
 const FRAME_BUDGET_MS = 18;
 const HEAVY_FRAME_BUDGET_MS = 24;
-const MIN_RENDER_BEHIND_MS = 90;
-const MAX_RENDER_BEHIND_MS = 180;
+const MIN_RENDER_BEHIND_MS = 140;
+const MAX_RENDER_BEHIND_MS = 280;
 const RENDER_BEHIND_TICK_RATIO = 1.25;
+const MAX_LOCAL_PREDICT_MS = 220;
 const BUFFER_SIZE = 6;
 const CAMERA_SMOOTHING = 0.22;
 const EYE_SIDES = [1, -1] as const;
@@ -144,15 +145,9 @@ function getSnapshotRenderCache(snapshot: GameSnapshot): SnapshotRenderCache {
     const indexes = snake.bodyIndexes;
     let indexMap: Map<number, { x: number; y: number }> | undefined;
     if (indexes) {
-      let contiguous = indexes.length === snake.body.length;
-      for (let i = 0; contiguous && i < indexes.length; i++) {
-        contiguous = indexes[i] === i;
-      }
-      if (!contiguous) {
-        indexMap = new Map();
-        for (let i = 0; i < snake.body.length; i++) {
-          indexMap.set(indexes[i] ?? i, snake.body[i]);
-        }
+      indexMap = new Map();
+      for (let i = 0; i < snake.body.length; i++) {
+        indexMap.set(indexes[i] ?? i, snake.body[i]);
       }
     }
     bodies.set(snake.id, { body: snake.body, indexMap });
@@ -181,7 +176,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   let playerId = options.playerId;
   let tickMs = options.tickMs || 200;
   let localSteerAngle = 0;
-  let localSteerAt = Number.NEGATIVE_INFINITY;
+  let localSteerAt = 0;
   let disposed = false;
 
   const renderer: SnakeRenderer = {
@@ -214,6 +209,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (disposed || !buffer.length) return;
 
       const frameStart = performance.now();
+      const wallNow = Date.now();
       const W = canvas.width;
       const H = canvas.height;
       if (W <= 0 || H <= 0) return;
@@ -239,6 +235,11 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
       if (!to) to = from;
 
+      const latestArrivedAt = to.arrivedAt ?? frameStart;
+      const ownPredictionMs = Math.min(
+        MAX_LOCAL_PREDICT_MS,
+        Math.max(0, frameStart - renderT, localSteerAt - latestArrivedAt),
+      );
       const fromT = from.arrivedAt ?? 0;
       const toT = to.arrivedAt ?? fromT + tickMs;
       const t = toT === fromT ? 1 : Math.max(0, Math.min(1, (renderT - fromT) / (toT - fromT)));
@@ -279,11 +280,40 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         return frameStart - localSteerAt < 600 ? localSteerAngle : serverAngle;
       }
 
+      function predictionDistance(snake: GameSnapshot["snakes"][number], wallNow: number) {
+        if (snake.id !== playerId || ownPredictionMs <= 0) return 0;
+        const effects = snake.effects ?? {};
+        const speedMul = wallNow < (effects.boost ?? 0)
+          ? 2
+          : wallNow < (effects.activeBoost ?? 0)
+            ? 2
+            : wallNow < (effects.slow ?? 0)
+              ? 0.5
+              : 1;
+        return (ownPredictionMs / Math.max(80, tickMs)) * speedMul;
+      }
+
+      function applyPrediction(
+        point: { x: number; y: number },
+        bodyIndex: number,
+        predictionDx: number,
+        predictionDy: number,
+      ) {
+        if (predictionDx === 0 && predictionDy === 0) return point;
+        const fade = Math.max(0.2, 1 - bodyIndex * 0.08);
+        point.x += predictionDx * fade;
+        point.y += predictionDy * fade;
+        return point;
+      }
+
       const me = snapshotCache.snakesById.get(playerId);
       let targetCx = mapSize / 2;
       let targetCy = mapSize / 2;
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
+        const distance = predictionDistance(me, wallNow);
+        const angle = (displayAngle(me.angle) * Math.PI) / 180;
+        applyPrediction(tmpPoint, 0, Math.cos(angle) * distance, Math.sin(angle) * distance);
         targetCx = tmpPoint.x;
         targetCy = tmpPoint.y;
       }
@@ -438,11 +468,22 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         const skin = SKINS[snake.skinId % SKINS.length];
         const isMe = snake.id === playerId;
         const bodyIndexes = snake.bodyIndexes;
+        let predictionDx = 0;
+        let predictionDy = 0;
+        if (isMe) {
+          const distance = predictionDistance(snake, wallNow);
+          if (distance > 0) {
+            const angle = (displayAngle(snake.angle) * Math.PI) / 180;
+            predictionDx = Math.cos(angle) * distance;
+            predictionDy = Math.sin(angle) * distance;
+          }
+        }
         let visibleCount = 0;
 
         for (let i = 0; i < snake.body.length; i++) {
           const bodyIndex = bodyIndexes?.[i] ?? i;
           lerpSeg(snake.id, bodyIndex, snake.body[i], tmpPoint);
+          applyPrediction(tmpPoint, bodyIndex, predictionDx, predictionDy);
           const wx = tmpPoint.x;
           const wy = tmpPoint.y;
           if (wx < vx0 - PAD || wx > vxMax + PAD || wy < vy0 - PAD || wy > vyMax + PAD) continue;
@@ -543,6 +584,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
           head.y >= vy0 - PAD && head.y <= vyMax + PAD
         ) {
           lerpSeg(snake.id, bodyIndexes?.[0] ?? 0, head, tmpPoint);
+          applyPrediction(tmpPoint, bodyIndexes?.[0] ?? 0, predictionDx, predictionDy);
           const nhx = (tmpPoint.x - vx0) * CELL;
           const nhy = (tmpPoint.y - vy0) * CELL;
           ctx.shadowColor = skin.glow ?? "transparent";
