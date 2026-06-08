@@ -11,7 +11,8 @@ export interface Env {
 
 const MAP_SIZE = 1000;
 const CELL_SIZE = 20;
-const TICK_MS = 200;
+const TICK_MS = 100;
+const BASE_STEP_PER_TICK = 0.5;
 const FOOD_TARGET = 5000;
 const INIT_LENGTH = 5;
 const RESPAWN_MS = 5000;
@@ -124,7 +125,7 @@ interface Snake {
   joinedAt: number;
   isBot: boolean;
   effects: SnakeEffects;
-  stepAccum: number; // 变速累加器（≥1 才真正移动一格）
+  stepAccum: number;
   boostHeld: boolean;
   nextBoostBurnAt: number;
   sessionRecorded: boolean;
@@ -344,54 +345,39 @@ export class SnakeRoom {
     else if (now < (snake.effects.activeBoost ?? 0)) speedMul = ACTIVE_BOOST_SPEED_MUL;
     else if (now < (snake.effects.slow ?? 0)) speedMul = 0.5;
 
-    snake.stepAccum += speedMul;
-    const steps = Math.floor(snake.stepAccum);
-    if (steps <= 0) return;
-    snake.stepAccum -= steps;
+    const distance = speedMul * BASE_STEP_PER_TICK;
+    if (distance <= 0) return;
 
     const rad = (snake.angle * Math.PI) / 180;
     const dx = Math.cos(rad);
     const dy = Math.sin(rad);
     const head = snake.body[0];
-    let safeSteps = 0;
-    for (let step = 1; step <= steps; step++) {
-      const nx = head.x + dx * step;
-      const ny = head.y + dy * step;
-      if (nx < 0 || nx >= MAP_SIZE || ny < 0 || ny >= MAP_SIZE) {
-        if (safeSteps > 0) this.advanceSnakeBody(snake, safeSteps, dx, dy);
-        this.killSnake(snake);
-        return;
-      }
-      safeSteps = step;
+    const nx = head.x + dx * distance;
+    const ny = head.y + dy * distance;
+    if (nx < 0 || nx >= MAP_SIZE || ny < 0 || ny >= MAP_SIZE) {
+      this.killSnake(snake);
+      return;
     }
-    this.advanceSnakeBody(snake, steps, dx, dy);
+    this.advanceSnakeBody(snake, nx, ny);
   }
 
-  private advanceSnakeBody(snake: Snake, steps: number, dx: number, dy: number) {
+  private advanceSnakeBody(snake: Snake, headX: number, headY: number) {
     const body = snake.body;
     const length = body.length;
     if (length === 0) return;
-    const actualSteps = Math.min(steps, length);
-    const head = body[0];
-    const canUpdateCollisionGrid = !this.collisionGridDirty;
-
-    if (canUpdateCollisionGrid) {
-      for (let i = length - actualSteps; i < length; i++) {
-        this.removeCollisionSegment(snake.id, body[i].x, body[i].y);
+    body[0] = { x: headX, y: headY };
+    for (let i = 1; i < length; i++) {
+      const leader = body[i - 1];
+      const follower = body[i];
+      const dx = leader.x - follower.x;
+      const dy = leader.y - follower.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 1) {
+        const keep = 1 / dist;
+        body[i] = { x: leader.x - dx * keep, y: leader.y - dy * keep };
       }
     }
-    for (let i = length - 1; i >= actualSteps; i--) {
-      body[i] = body[i - actualSteps];
-    }
-    for (let i = 0; i < actualSteps; i++) {
-      const distance = actualSteps - i;
-      body[i] = { x: head.x + dx * distance, y: head.y + dy * distance };
-    }
-    if (canUpdateCollisionGrid) {
-      for (let i = 0; i < actualSteps; i++) {
-        this.addCollisionSegment(snake.id, body[i].x, body[i].y);
-      }
-    }
+    this.collisionGridDirty = true;
   }
 
   private updateActiveBoost(snake: Snake, now: number) {
