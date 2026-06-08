@@ -28,7 +28,7 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
   const workerRef = useRef<Worker | null>(null);
   const rendererRef = useRef<SnakeRenderer | null>(null);
   const rafRef = useRef(0);
-  const pendingWorkerSnapshotRef = useRef<{ snapshot: GameSnapshot; tickMs: number } | null>(null);
+  const pendingWorkerSnapshotRef = useRef<{ snapshot: GameSnapshot; tickMs: number; arrivedAgo: number } | null>(null);
   const workerSnapshotRafRef = useRef(0);
 
   useEffect(() => {
@@ -166,6 +166,7 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
         pendingWorkerSnapshotRef.current = {
           snapshot,
           tickMs,
+          arrivedAgo: Math.max(0, performance.now() - (snapshot.arrivedAt ?? performance.now())),
         };
         if (!workerSnapshotRafRef.current) {
           workerSnapshotRafRef.current = requestAnimationFrame(() => {
@@ -173,11 +174,7 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
             const pending = pendingWorkerSnapshotRef.current;
             pendingWorkerSnapshotRef.current = null;
             if (!pending || workerRef.current !== worker) return;
-            worker.postMessage({
-              type: "snapshot",
-              ...pending,
-              arrivedAgo: Math.max(0, performance.now() - (pending.snapshot.arrivedAt ?? performance.now())),
-            });
+            worker.postMessage({ type: "snapshot", ...pending });
           });
         }
       } else {

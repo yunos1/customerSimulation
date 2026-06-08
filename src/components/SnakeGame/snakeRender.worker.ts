@@ -49,6 +49,7 @@ function flushPendingSnapshot() {
   if (!renderer || !pendingSnapshot) return;
   const msg = pendingSnapshot;
   pendingSnapshot = null;
+  msg.snapshot.arrivedAt = performance.now() - msg.arrivedAgo;
   renderer.pushSnapshot(msg.snapshot, msg.tickMs);
 }
 
@@ -75,7 +76,6 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   } else if (msg.type === "config") {
     renderer.setConfig(msg);
   } else if (msg.type === "snapshot") {
-    msg.snapshot.arrivedAt = performance.now() - msg.arrivedAgo;
     pendingSnapshot = msg;
     if (!pendingSnapshotTimer) {
       pendingSnapshotTimer = self.setTimeout(flushPendingSnapshot, 0);
