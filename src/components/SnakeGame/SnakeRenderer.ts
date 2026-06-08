@@ -4,9 +4,11 @@ import type { GameSnapshot } from "./useSnakeGame";
 const CELL = 26;
 const FRAME_BUDGET_MS = 18;
 const HEAVY_FRAME_BUDGET_MS = 24;
-const MIN_RENDER_BEHIND_MS = 140;
-const MAX_RENDER_BEHIND_MS = 280;
-const RENDER_BEHIND_TICK_RATIO = 1.25;
+const MIN_RENDER_BEHIND_MS = 110;
+const MAX_RENDER_BEHIND_MS = 220;
+const RENDER_BEHIND_TICK_RATIO = 0.9;
+const MAX_LOCAL_VISUAL_LEAD_MS = 90;
+const LOCAL_VISUAL_LEAD_SMOOTHING = 0.18;
 const BUFFER_SIZE = 6;
 const CAMERA_SMOOTHING = 0.22;
 const EYE_SIDES = [1, -1] as const;
@@ -182,6 +184,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   let tickMs = options.tickMs || 200;
   let localSteerAngle = 0;
   let localSteerAt = Number.NEGATIVE_INFINITY;
+  const localVisualLead = { x: 0, y: 0 };
   let disposed = false;
 
   const renderer: SnakeRenderer = {
@@ -280,12 +283,20 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       const me = snapshotCache.snakesById.get(playerId);
+      const localLeadMs = Math.min(MAX_LOCAL_VISUAL_LEAD_MS, Math.max(0, localSteerAt - (to.arrivedAt ?? frameStart)));
+      const localLeadDistance = localLeadMs / Math.max(100, tickMs);
+      const localLeadAngle = me ? (displayAngle(me.angle) * Math.PI) / 180 : 0;
+      const targetLeadX = localLeadDistance * Math.cos(localLeadAngle);
+      const targetLeadY = localLeadDistance * Math.sin(localLeadAngle);
+      localVisualLead.x += (targetLeadX - localVisualLead.x) * LOCAL_VISUAL_LEAD_SMOOTHING;
+      localVisualLead.y += (targetLeadY - localVisualLead.y) * LOCAL_VISUAL_LEAD_SMOOTHING;
+
       let targetCx = mapSize / 2;
       let targetCy = mapSize / 2;
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
-        targetCx = tmpPoint.x;
-        targetCy = tmpPoint.y;
+        targetCx = tmpPoint.x + localVisualLead.x;
+        targetCy = tmpPoint.y + localVisualLead.y;
       }
       if (!camera.ready || Math.hypot(targetCx - camera.x, targetCy - camera.y) > 24) {
         camera.x = targetCx;
@@ -438,13 +449,15 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         const skin = SKINS[snake.skinId % SKINS.length];
         const isMe = snake.id === playerId;
         const bodyIndexes = snake.bodyIndexes;
+        const visualLeadX = isMe ? localVisualLead.x : 0;
+        const visualLeadY = isMe ? localVisualLead.y : 0;
         let visibleCount = 0;
 
         for (let i = 0; i < snake.body.length; i++) {
           const bodyIndex = bodyIndexes?.[i] ?? i;
           lerpSeg(snake.id, bodyIndex, snake.body[i], tmpPoint);
-          const wx = tmpPoint.x;
-          const wy = tmpPoint.y;
+          const wx = tmpPoint.x + visualLeadX;
+          const wy = tmpPoint.y + visualLeadY;
           if (wx < vx0 - PAD || wx > vxMax + PAD || wy < vy0 - PAD || wy > vyMax + PAD) continue;
           const slot = visibleSegs[visibleCount] ?? (visibleSegs[visibleCount] = { i: 0, sx: 0, sy: 0 });
           slot.i = bodyIndex;
@@ -543,8 +556,8 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
           head.y >= vy0 - PAD && head.y <= vyMax + PAD
         ) {
           lerpSeg(snake.id, bodyIndexes?.[0] ?? 0, head, tmpPoint);
-          const nhx = (tmpPoint.x - vx0) * CELL;
-          const nhy = (tmpPoint.y - vy0) * CELL;
+          const nhx = (tmpPoint.x + visualLeadX - vx0) * CELL;
+          const nhy = (tmpPoint.y + visualLeadY - vy0) * CELL;
           ctx.shadowColor = skin.glow ?? "transparent";
           ctx.shadowBlur = 5;
           ctx.fillStyle = isMe ? "#fff" : "rgba(255,255,255,0.75)";
@@ -558,8 +571,8 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
 
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
-        const hx = tmpPoint.x;
-        const hy = tmpPoint.y;
+        const hx = tmpPoint.x + localVisualLead.x;
+        const hy = tmpPoint.y + localVisualLead.y;
         const WARN = 50;
         const alpha = (dist: number) => Math.max(0, Math.min(0.6, 1 - dist / WARN)) * 0.6;
         const drawWarn = (gradient: CanvasGradient, a: number) => {
