@@ -29,12 +29,14 @@ interface RendererOptions {
   mapSize: number;
   playerId: string;
   tickMs: number;
+  flags?: SnakeRendererFlags;
 }
 
 interface RendererConfig {
   mapSize?: number;
   playerId?: string;
   tickMs?: number;
+  flags?: SnakeRendererFlags;
 }
 
 export interface SnakeRenderer {
@@ -45,6 +47,20 @@ export interface SnakeRenderer {
   drawFrame: () => void;
   dispose: () => void;
 }
+
+export interface SnakeRendererFlags {
+  showDebug?: boolean;
+  disablePrediction?: boolean;
+  disableCameraSmoothing?: boolean;
+  lowEffects?: boolean;
+}
+
+const DEFAULT_RENDERER_FLAGS: Required<SnakeRendererFlags> = {
+  showDebug: false,
+  disablePrediction: false,
+  disableCameraSmoothing: false,
+  lowEffects: false,
+};
 
 // LRU sprite cache — cap at 128 entries to avoid unbounded memory growth / GC pauses
 const SPRITE_CACHE_MAX = 128;
@@ -175,8 +191,13 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   const camera = { x: mapSize / 2, y: mapSize / 2, ready: false };
   let playerId = options.playerId;
   let tickMs = options.tickMs || 200;
+  let flags = { ...DEFAULT_RENDERER_FLAGS, ...options.flags };
   let localSteerAngle = 0;
   let localSteerAt = 0;
+  let lastFrameAt = 0;
+  let fpsEma = 60;
+  let snapshotGapEma = tickMs;
+  let lastSnapshotArrivedAt = 0;
   let disposed = false;
 
   const renderer: SnakeRenderer = {
@@ -191,6 +212,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (typeof config.mapSize === "number") mapSize = config.mapSize;
       if (typeof config.playerId === "string") playerId = config.playerId;
       if (typeof config.tickMs === "number" && config.tickMs > 0) tickMs = config.tickMs;
+      if (config.flags) flags = { ...flags, ...config.flags };
     },
 
     setLocalSteer(angle) {
@@ -201,6 +223,12 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
     pushSnapshot(snapshot, nextTickMs) {
       if (disposed) return;
       if (typeof nextTickMs === "number" && nextTickMs > 0) tickMs = nextTickMs;
+      const arrivedAt = snapshot.arrivedAt ?? performance.now();
+      if (lastSnapshotArrivedAt > 0) {
+        const gap = arrivedAt - lastSnapshotArrivedAt;
+        if (gap > 20 && gap < 1200) snapshotGapEma = snapshotGapEma * 0.82 + gap * 0.18;
+      }
+      lastSnapshotArrivedAt = arrivedAt;
       buffer.push(snapshot);
       if (buffer.length > BUFFER_SIZE) buffer.shift();
     },
@@ -209,6 +237,12 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (disposed || !buffer.length) return;
 
       const frameStart = performance.now();
+      if (lastFrameAt > 0) {
+        const frameGap = frameStart - lastFrameAt;
+        if (frameGap > 0 && frameGap < 1000) fpsEma = fpsEma * 0.9 + (1000 / frameGap) * 0.1;
+      }
+      lastFrameAt = frameStart;
+
       const wallNow = Date.now();
       const W = canvas.width;
       const H = canvas.height;
@@ -236,9 +270,10 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (!to) to = from;
 
       const latestArrivedAt = to.arrivedAt ?? frameStart;
+      const newestArrivedAt = buffer[buffer.length - 1]?.arrivedAt ?? latestArrivedAt;
       const ownPredictionMs = Math.min(
         MAX_LOCAL_PREDICT_MS,
-        Math.max(0, frameStart - renderT, localSteerAt - latestArrivedAt),
+        flags.disablePrediction || localSteerAt <= newestArrivedAt ? 0 : Math.max(0, frameStart - localSteerAt),
       );
       const fromT = from.arrivedAt ?? 0;
       const toT = to.arrivedAt ?? fromT + tickMs;
@@ -277,7 +312,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       function displayAngle(serverAngle: number) {
-        return frameStart - localSteerAt < 600 ? localSteerAngle : serverAngle;
+        return localSteerAt > newestArrivedAt && frameStart - localSteerAt < 450 ? localSteerAngle : serverAngle;
       }
 
       function predictionDistance(snake: GameSnapshot["snakes"][number], wallNow: number) {
@@ -317,7 +352,8 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         targetCx = tmpPoint.x;
         targetCy = tmpPoint.y;
       }
-      if (!camera.ready || Math.hypot(targetCx - camera.x, targetCy - camera.y) > 24) {
+      const cameraError = Math.hypot(targetCx - camera.x, targetCy - camera.y);
+      if (!camera.ready || flags.disableCameraSmoothing || cameraError > 24) {
         camera.x = targetCx;
         camera.y = targetCy;
         camera.ready = true;
@@ -331,7 +367,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const vxMax = vx0 + W / CELL;
       const vyMax = vy0 + H / CELL;
       const PAD = 2;
-      const lowDetail = frameTimeEma > FRAME_BUDGET_MS;
+      const lowDetail = flags.lowEffects || frameTimeEma > FRAME_BUDGET_MS;
       const heavyDetail = frameTimeEma > HEAVY_FRAME_BUDGET_MS;
 
       ctx.clearRect(0, 0, W, H);
@@ -618,7 +654,36 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
 
       // EMA of frame time — drives adaptive quality next frame (no hysteresis cliff)
-      frameTimeEma = frameTimeEma * 0.85 + (performance.now() - frameStart) * 0.15;
+      const frameCost = performance.now() - frameStart;
+      if (flags.showDebug) {
+        const debugSnap = snapshot as GameSnapshot & { arrivalGapMs?: number; timelineDriftMs?: number };
+        const flagText = [
+          flags.disablePrediction ? "noPred" : "",
+          flags.disableCameraSmoothing ? "noCam" : "",
+          flags.lowEffects ? "lowFx" : "",
+        ].filter(Boolean).join(" ") || "normal";
+        const lines = [
+          `fps ${fpsEma.toFixed(0)}  frame ${frameCost.toFixed(1)}ms`,
+          `tick ${snapshot.tick}  tickMs ${tickMs.toFixed(0)}  buf ${buffer.length}`,
+          `snapGap ${snapshotGapEma.toFixed(0)}ms  renderBehind ${renderBehindMs.toFixed(0)}ms`,
+          `interp ${t.toFixed(2)}  predict ${ownPredictionMs.toFixed(0)}ms`,
+          `camErr ${cameraError.toFixed(2)}  drift ${(debugSnap.timelineDriftMs ?? 0).toFixed(0)}ms`,
+          `arrival ${(debugSnap.arrivalGapMs ?? 0).toFixed(0)}ms  ${flagText}`,
+        ];
+        ctx.save();
+        ctx.font = "12px ui-monospace, SFMono-Regular, Consolas, monospace";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = "rgba(4, 8, 16, 0.76)";
+        ctx.fillRect(10, 10, 292, 18 + lines.length * 15);
+        ctx.fillStyle = "#9ff6ff";
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], 18, 18 + i * 15);
+        }
+        ctx.restore();
+      }
+
+      frameTimeEma = frameTimeEma * 0.85 + frameCost * 0.15;
     },
 
     dispose() {

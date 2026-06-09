@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { createSnakeRenderer, type SnakeRenderer } from "./SnakeRenderer";
+import { createSnakeRenderer, type SnakeRenderer, type SnakeRendererFlags } from "./SnakeRenderer";
 import type { GameSnapshot } from "./useSnakeGame";
 
 type SnapshotSubscriber = (listener: (snapshot: GameSnapshot) => void) => () => void;
@@ -11,6 +11,7 @@ interface Props {
   mapSize: number;
   playerId: string;
   subscribeSnapshot: SnapshotSubscriber;
+  rendererFlags: SnakeRendererFlags;
   onRendererReady?: (api: { setLocalSteer: (angle: number) => void }) => () => void;
 }
 
@@ -23,7 +24,7 @@ type WorkerCanvasSession = {
 
 let devWorkerSession: WorkerCanvasSession | null = null;
 
-export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, onRendererReady }: Props) {
+export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, rendererFlags, onRendererReady }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const rendererRef = useRef<SnakeRenderer | null>(null);
@@ -41,6 +42,7 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
         mapSize,
         playerId,
         tickMs: tickMsRef.current || 200,
+        flags: rendererFlags,
       });
       rendererRef.current = renderer;
 
@@ -78,6 +80,7 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
             mapSize,
             playerId,
             tickMs: tickMsRef.current || 200,
+            flags: rendererFlags,
           }, [offscreen]);
           if (import.meta.env.DEV) {
             devWorkerSession = { canvas, worker, refs: 1 };
@@ -148,10 +151,10 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, on
   }, []); // renderer ownership is initialized once; config updates are sent below.
 
   useEffect(() => {
-    const config = { type: "config" as const, mapSize, playerId, tickMs: tickMsRef.current || 200 };
+    const config = { type: "config" as const, mapSize, playerId, tickMs: tickMsRef.current || 200, flags: rendererFlags };
     workerRef.current?.postMessage(config);
     rendererRef.current?.setConfig(config);
-  }, [mapSize, playerId, tickMsRef]);
+  }, [mapSize, playerId, tickMsRef, rendererFlags]);
 
   useEffect(() => {
     return subscribeSnapshot((snapshot) => {

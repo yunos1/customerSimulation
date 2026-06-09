@@ -1,8 +1,9 @@
 // 主游戏组件：整合 Canvas、MiniMap、HUD、输入
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GameCanvas } from "./GameCanvas";
 import { GameHUD } from "./GameHUD";
 import { MiniMap } from "./MiniMap";
+import type { SnakeRendererFlags } from "./SnakeRenderer";
 import { useGameInput } from "./useGameInput";
 import { useSnakeGame } from "./useSnakeGame";
 
@@ -13,6 +14,7 @@ interface Props {
 
 export function SnakeGame({ token, onBackToHub }: Props) {
   const rendererSteerRef = useRef<((angle: number) => void) | null>(null);
+  const [rendererFlags, setRendererFlags] = useState<SnakeRendererFlags>({});
   const {
     snapshot, tickMsRef, subscribeSnapshot,
     connected, mapSize, playerId, steer, setBoosting, leave,
@@ -36,6 +38,27 @@ export function SnakeGame({ token, onBackToHub }: Props) {
   }, []);
 
   useGameInput(handleSteer, setBoosting);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === "F3") {
+        event.preventDefault();
+        setRendererFlags((flags) => ({ ...flags, showDebug: !flags.showDebug }));
+      } else if (event.key === "1") {
+        event.preventDefault();
+        setRendererFlags((flags) => ({ ...flags, disablePrediction: !flags.disablePrediction }));
+      } else if (event.key === "2") {
+        event.preventDefault();
+        setRendererFlags((flags) => ({ ...flags, disableCameraSmoothing: !flags.disableCameraSmoothing }));
+      } else if (event.key === "3") {
+        event.preventDefault();
+        setRendererFlags((flags) => ({ ...flags, lowEffects: !flags.lowEffects }));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // 返回前先通知服务端保存分数，留出一帧时间发送再断开
   const handleBack = useCallback(() => {
@@ -68,6 +91,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
         mapSize={mapSize}
         playerId={playerId}
         subscribeSnapshot={subscribeSnapshot}
+        rendererFlags={rendererFlags}
         onRendererReady={handleRendererReady}
       />
       <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={isDead} />

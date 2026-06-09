@@ -1,10 +1,10 @@
-import { createSnakeRenderer, type SnakeRenderer } from "./SnakeRenderer";
+import { createSnakeRenderer, type SnakeRenderer, type SnakeRendererFlags } from "./SnakeRenderer";
 import type { GameSnapshot } from "./useSnakeGame";
 
 type WorkerMessage =
-  | { type: "init"; canvas: OffscreenCanvas; width: number; height: number; mapSize: number; playerId: string; tickMs: number }
+  | { type: "init"; canvas: OffscreenCanvas; width: number; height: number; mapSize: number; playerId: string; tickMs: number; flags?: SnakeRendererFlags }
   | { type: "resize"; width: number; height: number }
-  | { type: "config"; mapSize?: number; playerId?: string; tickMs?: number }
+  | { type: "config"; mapSize?: number; playerId?: string; tickMs?: number; flags?: SnakeRendererFlags }
   | { type: "snapshot"; snapshot: GameSnapshot; tickMs: number; arrivedAgo: number }
   | { type: "steer"; angle: number }
   | { type: "dispose" };
@@ -52,6 +52,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
       mapSize: msg.mapSize,
       playerId: msg.playerId,
       tickMs: msg.tickMs,
+      flags: msg.flags,
     });
     renderer.resize(msg.width, msg.height);
     startLoop();

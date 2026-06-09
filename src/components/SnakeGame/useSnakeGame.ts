@@ -31,6 +31,8 @@ export interface GameSnapshot {
   foods: FoodInfo[];
   leaderboard: LeaderEntry[];
   onlineCount?: number;
+  arrivalGapMs?: number;
+  timelineDriftMs?: number;
   // 客户端记录的本地到达时间（performance.now()），供 render-behind 插值
   arrivedAt?: number;
 }
@@ -69,6 +71,7 @@ export function useSnakeGame(token: string | null) {
   const bufferRef = useRef<GameSnapshot[]>([]);
   const tickMsRef = useRef<number>(200);
   const lastArriveRef = useRef<number>(0);
+  const timelineRef = useRef<{ tick: number; time: number } | null>(null);
   const lastStateUpdateRef = useRef<number>(0);
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
@@ -93,17 +96,22 @@ export function useSnakeGame(token: string | null) {
         if (typeof msg.tickMs === "number") tickMsRef.current = msg.tickMs;
       } else if (msg.type === "state") {
         const now = performance.now();
-        // 实测两次快照间隔，EMA 平滑后作为插值时长，吸收网络/tick 抖动。
         const last = lastArriveRef.current;
-        if (last) {
-          const gap = now - last;
-          if (gap > 30 && gap < 1000) {
-            tickMsRef.current = tickMsRef.current * 0.7 + gap * 0.3;
-          }
-        }
+        const arrivalGapMs = last ? now - last : 0;
         lastArriveRef.current = now;
         const snap = msg as GameSnapshot;
-        snap.arrivedAt = now;
+        const tickMs = tickMsRef.current || 200;
+        const timeline = timelineRef.current;
+        let arrivedAt = now;
+        if (timeline && snap.tick > timeline.tick) {
+          arrivedAt = timeline.time + (snap.tick - timeline.tick) * tickMs;
+          const drift = now - arrivedAt;
+          if (Math.abs(drift) > tickMs * 1.5) arrivedAt = now;
+        }
+        timelineRef.current = { tick: snap.tick, time: arrivedAt };
+        snap.arrivedAt = arrivedAt;
+        snap.arrivalGapMs = arrivalGapMs;
+        snap.timelineDriftMs = now - arrivedAt;
         const buf = bufferRef.current;
         buf.push(snap);
         if (buf.length > BUFFER_SIZE) buf.shift();
