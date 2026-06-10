@@ -1,22 +1,22 @@
 // 小地图：右下角，死亡时可点击展开拖动预览
 import { useEffect, useRef, useState, useCallback, memo } from "react";
-import type { GameSnapshot } from "./useSnakeGame";
+import type { GameSnapshot, SnapshotSubscriber } from "./useSnakeGame";
 
 const SIZE = 140; // 缩小后的尺寸
 const EXPAND = 420; // 展开后的尺寸
 const FOOD_DOT = ["rgba(100,255,100,0.5)", "#ffd700", "#00f5ff"];
 
 interface Props {
-  snapshot: GameSnapshot | null;
+  subscribeSnapshot: SnapshotSubscriber;
   mapSize: number;
   playerId: string;
   isDead: boolean;
 }
 
-export const MiniMap = memo(function MiniMap({ snapshot, mapSize, playerId, isDead }: Props) {
+export const MiniMap = memo(function MiniMap({ subscribeSnapshot, mapSize, playerId, isDead }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const prevSnapshotRef = useRef<typeof snapshot>(null);
+  const latestSnapshotRef = useRef<GameSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
   // 拖动偏移（展开时）
   const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
@@ -29,11 +29,9 @@ export const MiniMap = memo(function MiniMap({ snapshot, mapSize, playerId, isDe
 
   const size = expanded ? EXPAND : SIZE;
 
-  useEffect(() => {
+  const drawSnapshot = useCallback((snapshot: GameSnapshot | null) => {
     const canvas = canvasRef.current;
     if (!canvas || !snapshot) return;
-    if (prevSnapshotRef.current === snapshot) return; // 同一对象，跳过重绘
-    prevSnapshotRef.current = snapshot;
     const ctx = ctxRef.current ?? canvas.getContext("2d");
     if (!ctx) return;
     ctxRef.current = ctx;
@@ -70,7 +68,27 @@ export const MiniMap = memo(function MiniMap({ snapshot, mapSize, playerId, isDe
     ctx.strokeStyle = expanded ? "rgba(255,68,68,0.8)" : "rgba(255,255,255,0.3)";
     ctx.lineWidth = expanded ? 2 : 1;
     ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
-  }, [snapshot, mapSize, playerId, expanded, size]);
+  }, [mapSize, playerId, expanded, size]);
+
+  useEffect(() => {
+    let frameId = 0;
+    const unsubscribe = subscribeSnapshot((snapshot) => {
+      latestSnapshotRef.current = snapshot;
+      if (frameId) return;
+      frameId = requestAnimationFrame(() => {
+        frameId = 0;
+        drawSnapshot(latestSnapshotRef.current);
+      });
+    });
+    return () => {
+      unsubscribe();
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [subscribeSnapshot, drawSnapshot]);
+
+  useEffect(() => {
+    drawSnapshot(latestSnapshotRef.current);
+  }, [drawSnapshot]);
 
   // 拖动处理
   const onPointerDown = useCallback((e: React.PointerEvent) => {

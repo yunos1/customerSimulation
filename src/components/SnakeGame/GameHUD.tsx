@@ -1,7 +1,7 @@
 // 游戏 HUD：排行榜（首屏5条，滚动看50）+ 分数 + 复活倒计时 + buff状态条 + 击杀播报
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { SKILL_BY_KEY } from "./skins";
-import type { GameSnapshot, LeaderEntry } from "./useSnakeGame";
+import type { GameHudSnapshot, LeaderEntry } from "./useSnakeGame";
 
 const DESKTOP_LEADERBOARD_QUERY = "(min-width: 768px) and (hover: hover) and (pointer: fine)";
 const TOUCH_CONTROLS_QUERY = "(hover: none), (pointer: coarse)";
@@ -26,7 +26,7 @@ function useMediaQuery(query: string) {
 }
 
 interface Props {
-  snapshot: GameSnapshot | null;
+  snapshot: GameHudSnapshot | null;
   playerId: string;
   onBackToHub: () => void;
   onBoostChange: (active: boolean) => void;
@@ -41,7 +41,7 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub, 
   const isDesktopLeaderboard = useMediaQuery(DESKTOP_LEADERBOARD_QUERY);
   const showTouchBoost = useMediaQuery(TOUCH_CONTROLS_QUERY);
 
-  const me = useMemo(() => snapshot?.snakes.find((s) => s.id === playerId), [snapshot, playerId]);
+  const me = snapshot?.me ?? null;
   const leaderboard: LeaderEntry[] = useMemo(() => snapshot?.leaderboard ?? [], [snapshot]);
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export const GameHUD = memo(function GameHUD({ snapshot, playerId, onBackToHub, 
   const respawnIn = me && !me.alive && me.respawnAt
     ? Math.max(0, Math.ceil((me.respawnAt - Date.now()) / 1000))
     : null;
-  const bodyLength = me?.bodyLength ?? me?.body.length ?? 0;
+  const bodyLength = me?.bodyLength ?? 0;
   const canActiveBoost = !!me?.alive && bodyLength >= ACTIVE_BOOST_MIN_LENGTH && me.score >= ACTIVE_BOOST_SCORE_COST;
   const isActiveBoosting = boostHeld || !!me?.effects?.activeBoost;
 

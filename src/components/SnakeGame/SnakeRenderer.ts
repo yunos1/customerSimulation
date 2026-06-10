@@ -4,6 +4,10 @@ import type { GameSnapshot } from "./useSnakeGame";
 const CELL = 26;
 const FRAME_BUDGET_MS = 18;
 const HEAVY_FRAME_BUDGET_MS = 24;
+const STRESSED_FRAME_BUDGET_MS = 32;
+const LOW_FPS_FRAME_MS = 1000 / 40;
+const HEAVY_FPS_FRAME_MS = 1000 / 30;
+const STRESSED_FPS_FRAME_MS = 1000 / 24;
 const MIN_RENDER_BEHIND_MS = 140;
 const MAX_RENDER_BEHIND_MS = 280;
 const RENDER_BEHIND_TICK_RATIO = 1.25;
@@ -195,6 +199,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
   let localSteerAngle = 0;
   let localSteerAt = 0;
   let lastFrameAt = 0;
+  let lastPaintAt = 0;
   let fpsEma = 60;
   let snapshotGapEma = tickMs;
   let lastSnapshotArrivedAt = 0;
@@ -237,6 +242,18 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       if (disposed || !buffer.length) return;
 
       const frameStart = performance.now();
+      const targetFrameMs = frameTimeEma > STRESSED_FRAME_BUDGET_MS
+        ? STRESSED_FPS_FRAME_MS
+        : frameTimeEma > HEAVY_FRAME_BUDGET_MS
+          ? HEAVY_FPS_FRAME_MS
+        : frameTimeEma > FRAME_BUDGET_MS
+          ? LOW_FPS_FRAME_MS
+          : 0;
+      if (targetFrameMs > 0 && frameStart - lastPaintAt < targetFrameMs) {
+        return;
+      }
+      lastPaintAt = frameStart;
+
       if (lastFrameAt > 0) {
         const frameGap = frameStart - lastFrameAt;
         if (frameGap > 0 && frameGap < 1000) fpsEma = fpsEma * 0.9 + (1000 / frameGap) * 0.1;
@@ -369,6 +386,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       const PAD = 2;
       const lowDetail = flags.lowEffects || frameTimeEma > FRAME_BUDGET_MS;
       const heavyDetail = frameTimeEma > HEAVY_FRAME_BUDGET_MS;
+      const stressedDetail = frameTimeEma > STRESSED_FRAME_BUDGET_MS;
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#0a0e1a";
@@ -533,7 +551,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
 
         ctx.save();
 
-        if (!lowDetail && skin.glow && isMe) {
+        if (!lowDetail && !stressedDetail && skin.glow && isMe) {
           ctx.shadowColor = skin.glow;
           ctx.shadowBlur = 18;
         }
@@ -558,7 +576,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
 
         ctx.shadowBlur = 0;
         if (!heavyDetail && (!lowDetail || isMe)) {
-          const bodyDotStep = lowDetail ? 3 : visibleCount > 120 ? 2 : 1;
+          const bodyDotStep = lowDetail ? 4 : visibleCount > 80 ? 2 : 1;
           for (let vi = 0; vi < visibleCount; vi += bodyDotStep) {
             const { i, sx, sy } = visibleSegs[vi];
             if (i === 0) continue;
@@ -584,7 +602,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         if (headSeg) {
           const hcx = headSeg.sx + R;
           const hcy = headSeg.sy + R;
-          if (!lowDetail && skin.glow) {
+          if (!lowDetail && !stressedDetail && skin.glow) {
             ctx.shadowColor = skin.glow;
             ctx.shadowBlur = isMe ? 24 : 14;
           }
@@ -616,6 +634,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         const head = snake.body[0];
         if (
           (!lowDetail || isMe) &&
+          (!heavyDetail || isMe) &&
           head.x >= vx0 - PAD && head.x <= vxMax + PAD &&
           head.y >= vy0 - PAD && head.y <= vyMax + PAD
         ) {

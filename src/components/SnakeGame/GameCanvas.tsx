@@ -4,7 +4,8 @@ import type { GameSnapshot } from "./useSnakeGame";
 
 type SnapshotSubscriber = (listener: (snapshot: GameSnapshot) => void) => () => void;
 
-const MAX_RENDER_DPR = 1.5;
+const MAX_RENDER_DPR = 1.25;
+const MAX_CANVAS_PIXELS = 1_600_000;
 
 interface Props {
   tickMsRef: React.RefObject<number>;
@@ -99,9 +100,12 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, re
 
     const resize = () => {
       if (disposed) return;
-      const dpr = Math.min(MAX_RENDER_DPR, window.devicePixelRatio || 1);
-      const width = Math.max(1, Math.floor(canvas.offsetWidth * dpr));
-      const height = Math.max(1, Math.floor(canvas.offsetHeight * dpr));
+      const cssWidth = Math.max(1, Math.floor(canvas.offsetWidth));
+      const cssHeight = Math.max(1, Math.floor(canvas.offsetHeight));
+      const pixelCappedDpr = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, cssWidth * cssHeight));
+      const dpr = Math.max(1, Math.min(MAX_RENDER_DPR, pixelCappedDpr, window.devicePixelRatio || 1));
+      const width = Math.max(1, Math.floor(cssWidth * dpr));
+      const height = Math.max(1, Math.floor(cssHeight * dpr));
       const worker = workerRef.current;
       if (worker) {
         worker.postMessage({ type: "resize", width, height });

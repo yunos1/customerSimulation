@@ -1,5 +1,5 @@
 // WebSocket 连接 + 游戏状态管理
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
 export interface Vec2 { x: number; y: number }
 // 生效中的 buff -> 到期时间戳（服务端 Date.now() 基准）。仅含尚未到期的。
@@ -39,29 +39,58 @@ export interface GameSnapshot {
 
 // render-behind 缓冲保留最近 N 帧，渲染时刻回退 ~1.5 tick，永远落在两帧之间插值
 const BUFFER_SIZE = 6;
-const SNAPSHOT_STATE_INTERVAL_MS = 500;
-type SnapshotListener = (snapshot: GameSnapshot) => void;
+const HUD_STATE_INTERVAL_MS = 500;
+export type SnapshotListener = (snapshot: GameSnapshot) => void;
+export type SnapshotSubscriber = (listener: SnapshotListener) => () => void;
 
-function toUiSnapshot(snapshot: GameSnapshot): GameSnapshot {
+export interface HudSnakeInfo {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+  skinId: number;
+  angle: number;
+  alive: boolean;
+  score: number;
+  kills: number;
+  respawnAt: number;
+  bodyLength: number;
+  effects?: SnakeEffects;
+  isBot?: boolean;
+}
+
+export interface GameHudSnapshot {
+  tick: number;
+  playerId: string;
+  onlineCount: number;
+  me: HudSnakeInfo | null;
+  leaderboard: LeaderEntry[];
+}
+
+function toHudSnapshot(snapshot: GameSnapshot, fallbackPlayerId: string): GameHudSnapshot {
+  const playerId = snapshot.playerId || fallbackPlayerId;
+  const me = snapshot.snakes.find((snake) => snake.id === playerId);
+
   return {
-    ...snapshot,
-    snakes: snapshot.snakes.map((snake) => ({
-      id: snake.id,
-      username: snake.username,
-      avatarUrl: snake.avatarUrl,
-      skinId: snake.skinId,
-      body: snake.body.length ? [snake.body[0]] : [],
-      angle: snake.angle,
-      alive: snake.alive,
-      score: snake.score,
-      kills: snake.kills,
-      respawnAt: snake.respawnAt,
-      bodyLength: snake.bodyLength ?? snake.body.length,
-      effects: snake.effects,
-      isBot: snake.isBot,
-      bodyHead: true,
-      bodyIndexes: snake.body.length ? [0] : [],
-    })),
+    tick: snapshot.tick,
+    playerId,
+    onlineCount: snapshot.onlineCount ?? 0,
+    leaderboard: snapshot.leaderboard,
+    me: me
+      ? {
+          id: me.id,
+          username: me.username,
+          avatarUrl: me.avatarUrl,
+          skinId: me.skinId,
+          angle: me.angle,
+          alive: me.alive,
+          score: me.score,
+          kills: me.kills,
+          respawnAt: me.respawnAt,
+          bodyLength: me.bodyLength ?? me.body.length,
+          effects: me.effects,
+          isBot: me.isBot,
+        }
+      : null,
   };
 }
 
@@ -72,10 +101,11 @@ export function useSnakeGame(token: string | null) {
   const tickMsRef = useRef<number>(200);
   const lastArriveRef = useRef<number>(0);
   const timelineRef = useRef<{ tick: number; time: number } | null>(null);
-  const lastStateUpdateRef = useRef<number>(0);
-  const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const lastHudUpdateRef = useRef<number>(0);
+  const [hudSnapshot, setHudSnapshot] = useState<GameHudSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [mapSize, setMapSize] = useState(1000);
+  const [playerId, setPlayerId] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const playerIdRef = useRef<string>("");
   const listenersRef = useRef(new Set<SnapshotListener>());
@@ -92,6 +122,7 @@ export function useSnakeGame(token: string | null) {
       const msg = JSON.parse(ev.data);
       if (msg.type === "init") {
         playerIdRef.current = msg.playerId;
+        setPlayerId(msg.playerId);
         setMapSize(msg.mapSize);
         if (typeof msg.tickMs === "number") tickMsRef.current = msg.tickMs;
       } else if (msg.type === "state") {
@@ -100,6 +131,10 @@ export function useSnakeGame(token: string | null) {
         const arrivalGapMs = last ? now - last : 0;
         lastArriveRef.current = now;
         const snap = msg as GameSnapshot;
+        if (snap.playerId && playerIdRef.current !== snap.playerId) {
+          playerIdRef.current = snap.playerId;
+          setPlayerId(snap.playerId);
+        }
         const tickMs = tickMsRef.current || 200;
         const timeline = timelineRef.current;
         let arrivedAt = now;
@@ -116,9 +151,11 @@ export function useSnakeGame(token: string | null) {
         buf.push(snap);
         if (buf.length > BUFFER_SIZE) buf.shift();
         for (const listener of listenersRef.current) listener(snap);
-        if (now - lastStateUpdateRef.current >= SNAPSHOT_STATE_INTERVAL_MS) {
-          lastStateUpdateRef.current = now;
-          setSnapshot(toUiSnapshot(snap));
+        if (now - lastHudUpdateRef.current >= HUD_STATE_INTERVAL_MS) {
+          lastHudUpdateRef.current = now;
+          startTransition(() => {
+            setHudSnapshot(toHudSnapshot(snap, playerIdRef.current));
+          });
         }
       }
     };
@@ -146,7 +183,7 @@ export function useSnakeGame(token: string | null) {
   }, []);
 
   return {
-    snapshot, bufferRef, tickMsRef, subscribeSnapshot,
-    connected, mapSize, playerId: playerIdRef.current, steer, setBoosting, leave,
+    hudSnapshot, bufferRef, tickMsRef, subscribeSnapshot,
+    connected, mapSize, playerId, steer, setBoosting, leave,
   };
 }

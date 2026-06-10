@@ -1,5 +1,5 @@
 // 主游戏组件：整合 Canvas、MiniMap、HUD、输入
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { GameCanvas } from "./GameCanvas";
 import { GameHUD } from "./GameHUD";
 import { MiniMap } from "./MiniMap";
@@ -16,7 +16,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
   const rendererSteerRef = useRef<((angle: number) => void) | null>(null);
   const [rendererFlags, setRendererFlags] = useState<SnakeRendererFlags>({});
   const {
-    snapshot, tickMsRef, subscribeSnapshot,
+    hudSnapshot, tickMsRef, subscribeSnapshot,
     connected, mapSize, playerId, steer, setBoosting, leave,
   } = useSnakeGame(token);
 
@@ -66,10 +66,7 @@ export function SnakeGame({ token, onBackToHub }: Props) {
     setTimeout(onBackToHub, 120);
   }, [leave, onBackToHub]);
 
-  const isDead = useMemo(
-    () => snapshot?.snakes.find((snake) => snake.id === playerId)?.alive === false,
-    [snapshot, playerId],
-  );
+  const isDead = hudSnapshot?.me?.alive === false;
 
   if (!connected) {
     return (
@@ -94,9 +91,14 @@ export function SnakeGame({ token, onBackToHub }: Props) {
         rendererFlags={rendererFlags}
         onRendererReady={handleRendererReady}
       />
-      <MiniMap snapshot={snapshot} mapSize={mapSize} playerId={playerId} isDead={isDead} />
+      <MiniMap
+        subscribeSnapshot={subscribeSnapshot}
+        mapSize={mapSize}
+        playerId={playerId}
+        isDead={isDead}
+      />
       <GameHUD
-        snapshot={snapshot}
+        snapshot={hudSnapshot}
         playerId={playerId}
         onBackToHub={handleBack}
         onBoostChange={setBoosting}
