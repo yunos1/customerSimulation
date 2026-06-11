@@ -169,7 +169,7 @@ export function GameCanvas({ tickMsRef, mapSize, playerId, subscribeSnapshot, re
           type: "snapshot",
           snapshot,
           tickMs,
-          arrivedAgo: Math.max(0, performance.now() - (snapshot.arrivedAt ?? performance.now())),
+          arrivedAgo: performance.now() - (snapshot.arrivedAt ?? performance.now()),
         });
       } else {
         rendererRef.current?.pushSnapshot(snapshot, tickMs);

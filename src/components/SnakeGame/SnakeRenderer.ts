@@ -11,9 +11,12 @@ const STRESSED_FPS_FRAME_MS = 1000 / 24;
 const MIN_RENDER_BEHIND_MS = 140;
 const MAX_RENDER_BEHIND_MS = 280;
 const RENDER_BEHIND_TICK_RATIO = 1.25;
-const MAX_LOCAL_PREDICT_MS = 220;
+const MAX_LOCAL_PREDICT_MS = 140;
+const LOCAL_STEER_HOLD_MS = 120;
+const LOCAL_STEER_FADE_MS = 260;
 const BUFFER_SIZE = 6;
-const CAMERA_SMOOTHING = 0.22;
+const CAMERA_FOLLOW_HALF_LIFE_MS = 85;
+const CAMERA_TELEPORT_DISTANCE = 90;
 const EYE_SIDES = [1, -1] as const;
 
 type RenderCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -152,6 +155,18 @@ function hexToRgb(hex: string): string {
   return `${(n >> 16) & 0xff},${(n >> 8) & 0xff},${n & 0xff}`;
 }
 
+function angleDelta(from: number, to: number) {
+  return ((((to - from) % 360) + 540) % 360) - 180;
+}
+
+function lerpAngle(from: number, to: number, amount: number) {
+  return (((from + angleDelta(from, to) * amount) % 360) + 360) % 360;
+}
+
+function followAmount(deltaMs: number) {
+  return 1 - Math.pow(0.5, Math.max(1, deltaMs) / CAMERA_FOLLOW_HALF_LIFE_MS);
+}
+
 const snapshotRenderCache = new WeakMap<GameSnapshot, SnapshotRenderCache>();
 
 function getSnapshotRenderCache(snapshot: GameSnapshot): SnapshotRenderCache {
@@ -246,17 +261,21 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         ? STRESSED_FPS_FRAME_MS
         : frameTimeEma > HEAVY_FRAME_BUDGET_MS
           ? HEAVY_FPS_FRAME_MS
-        : frameTimeEma > FRAME_BUDGET_MS
-          ? LOW_FPS_FRAME_MS
-          : 0;
+          : frameTimeEma > FRAME_BUDGET_MS
+            ? LOW_FPS_FRAME_MS
+            : 0;
       if (targetFrameMs > 0 && frameStart - lastPaintAt < targetFrameMs) {
         return;
       }
       lastPaintAt = frameStart;
 
+      let frameDeltaMs = 16;
       if (lastFrameAt > 0) {
         const frameGap = frameStart - lastFrameAt;
-        if (frameGap > 0 && frameGap < 1000) fpsEma = fpsEma * 0.9 + (1000 / frameGap) * 0.1;
+        if (frameGap > 0 && frameGap < 1000) {
+          frameDeltaMs = frameGap;
+          fpsEma = fpsEma * 0.9 + (1000 / frameGap) * 0.1;
+        }
       }
       lastFrameAt = frameStart;
 
@@ -286,12 +305,13 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       }
       if (!to) to = from;
 
-      const latestArrivedAt = to.arrivedAt ?? frameStart;
-      const newestArrivedAt = buffer[buffer.length - 1]?.arrivedAt ?? latestArrivedAt;
-      const ownPredictionMs = Math.min(
-        MAX_LOCAL_PREDICT_MS,
-        flags.disablePrediction || localSteerAt <= newestArrivedAt ? 0 : Math.max(0, frameStart - localSteerAt),
-      );
+      const localSteerAge = Math.max(0, frameStart - localSteerAt);
+      const localSteerBlend = flags.disablePrediction || localSteerAge >= LOCAL_STEER_FADE_MS
+        ? 0
+        : localSteerAge <= LOCAL_STEER_HOLD_MS
+          ? 1
+          : 1 - (localSteerAge - LOCAL_STEER_HOLD_MS) / (LOCAL_STEER_FADE_MS - LOCAL_STEER_HOLD_MS);
+      const ownPredictionMs = Math.min(MAX_LOCAL_PREDICT_MS, localSteerAge) * localSteerBlend;
       const fromT = from.arrivedAt ?? 0;
       const toT = to.arrivedAt ?? fromT + tickMs;
       const t = toT === fromT ? 1 : Math.max(0, Math.min(1, (renderT - fromT) / (toT - fromT)));
@@ -328,8 +348,9 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         return out;
       }
 
-      function displayAngle(serverAngle: number) {
-        return localSteerAt > newestArrivedAt && frameStart - localSteerAt < 450 ? localSteerAngle : serverAngle;
+      function displayAngle(id: string, serverAngle: number) {
+        if (id !== playerId || localSteerBlend <= 0) return serverAngle;
+        return lerpAngle(serverAngle, localSteerAngle, localSteerBlend);
       }
 
       function predictionDistance(snake: GameSnapshot["snakes"][number], wallNow: number) {
@@ -363,20 +384,18 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
       let targetCy = mapSize / 2;
       if (me?.alive && me.body.length) {
         lerpSeg(me.id, 0, me.body[0], tmpPoint);
-        const distance = predictionDistance(me, wallNow);
-        const angle = (displayAngle(me.angle) * Math.PI) / 180;
-        applyPrediction(tmpPoint, 0, Math.cos(angle) * distance, Math.sin(angle) * distance);
         targetCx = tmpPoint.x;
         targetCy = tmpPoint.y;
       }
       const cameraError = Math.hypot(targetCx - camera.x, targetCy - camera.y);
-      if (!camera.ready || flags.disableCameraSmoothing || cameraError > 24) {
+      if (!camera.ready || flags.disableCameraSmoothing || cameraError > CAMERA_TELEPORT_DISTANCE) {
         camera.x = targetCx;
         camera.y = targetCy;
         camera.ready = true;
       } else {
-        camera.x += (targetCx - camera.x) * CAMERA_SMOOTHING;
-        camera.y += (targetCy - camera.y) * CAMERA_SMOOTHING;
+        const cameraFollow = followAmount(frameDeltaMs);
+        camera.x += (targetCx - camera.x) * cameraFollow;
+        camera.y += (targetCy - camera.y) * cameraFollow;
       }
 
       const vx0 = camera.x - W / 2 / CELL;
@@ -527,7 +546,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
         if (isMe) {
           const distance = predictionDistance(snake, wallNow);
           if (distance > 0) {
-            const angle = (displayAngle(snake.angle) * Math.PI) / 180;
+            const angle = (displayAngle(snake.id, snake.angle) * Math.PI) / 180;
             predictionDx = Math.cos(angle) * distance;
             predictionDy = Math.sin(angle) * distance;
           }
@@ -612,7 +631,7 @@ export function createSnakeRenderer(canvas: RenderCanvas, options: RendererOptio
           ctx.fill();
           ctx.shadowBlur = 0;
           if (!lowDetail || isMe) {
-            const angle = (displayAngle(snake.angle) * Math.PI) / 180;
+            const angle = (displayAngle(snake.id, snake.angle) * Math.PI) / 180;
             const ex = Math.cos(angle) * R * 0.45;
             const ey = Math.sin(angle) * R * 0.45;
             const ep = Math.cos(angle + Math.PI / 2) * R * 0.35;
