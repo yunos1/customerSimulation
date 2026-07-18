@@ -4,6 +4,11 @@ import type { MetaState } from "../game/meta";
 
 const SYNC_DEBOUNCE_MS = 3000;
 
+/**
+ * Cloud progress sync.
+ * On login: pull remote and field-merge into local (via applyRemoteMeta → mergeMetaProgress).
+ * On local change: debounce PUT. Server stores updated_at for observability; merge is client-side.
+ */
 export function useProgressSync(
   user: AuthUser | null,
   meta: MetaState,
@@ -11,8 +16,11 @@ export function useProgressSync(
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [readyUserId, setReadyUserId] = useState<string | null>(null);
+  // Snapshot local meta at login for merge baseline without stale closure races.
+  const metaAtLoginRef = useRef(meta);
+  metaAtLoginRef.current = meta;
 
-  // On login: pull remote progress (only if local has no runs yet)
+  // On login: pull remote progress and merge with local
   useEffect(() => {
     if (!user) {
       setReadyUserId(null);
@@ -22,16 +30,12 @@ export function useProgressSync(
     let cancelled = false;
     setReadyUserId(null);
     fetch("/api/progress")
-      .then(r => r.json())
-      .then(data => {
+      .then((r) => r.json())
+      .then((data) => {
         if (cancelled) return;
         const remote = (data as { meta: MetaState | null }).meta;
         if (!remote) return;
-        const localRuns = meta.records?.totalRuns ?? 0;
-        const remoteRuns = remote.records?.totalRuns ?? 0;
-        if (remoteRuns > localRuns) {
-          applyRemoteMeta(remote);
-        }
+        applyRemoteMeta(remote);
       })
       .catch(() => {})
       .finally(() => {
@@ -41,7 +45,6 @@ export function useProgressSync(
     return () => {
       cancelled = true;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, applyRemoteMeta]);
 
   // On meta change: debounce push to cloud

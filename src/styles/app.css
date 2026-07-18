@@ -208,6 +208,54 @@
   margin-top: 30px;
 }
 
+.hub-data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.hub-data-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(236, 255, 251, 0.16);
+  border-radius: 10px;
+  background: rgba(7, 21, 24, 0.45);
+  color: rgba(236, 255, 251, 0.82);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.hub-data-btn:hover:not(:disabled) {
+  border-color: rgba(125, 245, 231, 0.45);
+  color: #f5fffb;
+}
+
+.hub-data-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hub-data-btn-danger:hover:not(:disabled) {
+  border-color: rgba(201, 75, 87, 0.55);
+  background: rgba(201, 75, 87, 0.14);
+  color: #ffd6dc;
+}
+
+.hub-data-msg {
+  color: rgba(220, 246, 242, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .hub-primary-action,
 .hub-secondary-action,
 .simulator-card-button,

@@ -8,3 +8,11 @@ dist/
 
 .DS_Store
 Thumbs.db
+
+# local secrets / scratch notes
+src/1.text
+src/1.json
+1.text
+1.json
+*.secrets.json
+**/credentials*.json

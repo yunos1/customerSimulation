@@ -1,6 +1,6 @@
 import { replyCards } from "./replyCards";
 import { policies as workplacePolicies } from "./policies";
-import { possibleEvents as workplaceEvents } from "./events";
+import { workplaceEvents } from "./events";
 import { unlockableCards } from "./unlockableCards";
 import type {
   CareerConfig,
@@ -173,6 +173,25 @@ const comedyEvents: RandomEvent[] = [
       complianceRisk: 3,
     },
   },
+  {
+    id: "live-clip-raid",
+    title: "直播切片突袭",
+    description: "客户说正在直播连麦售后，任何冷模板都可能被放大剪辑。",
+    effects: {
+      anger: 6,
+      complianceRisk: 5,
+      timeLeft: -5,
+    },
+  },
+  {
+    id: "pr-war-room",
+    title: "公关临时群拉人",
+    description: "公关要你 10 分钟内给出口径摘要，分心会拖慢工单。",
+    effects: {
+      timeLeft: -9,
+      companyCost: 3,
+    },
+  },
 ];
 
 const comedyDays: CareerDay[] = [
@@ -317,6 +336,26 @@ const cyberEvents: RandomEvent[] = [
       timeLeft: -10,
     },
   },
+  {
+    id: "model-drift-alert",
+    title: "模型漂移告警",
+    description: "客户侧模型回复风格突变，查证链路多出一层人工复核。",
+    effects: {
+      timeLeft: -6,
+      satisfaction: -3,
+      complianceRisk: 4,
+    },
+  },
+  {
+    id: "ghost-session",
+    title: "幽灵会话回放",
+    description: "系统弹出一段你没参与过的历史对话片段，需要先确认是否串单。",
+    effects: {
+      anger: 4,
+      timeLeft: -5,
+      complianceRisk: 5,
+    },
+  },
 ];
 
 const cyberDays: CareerDay[] = [
@@ -451,6 +490,18 @@ const midnightEvents: RandomEvent[] = [
     description: "系统弹出今日接待时长超标提醒，但你知道不能催。",
     effects: { complianceRisk: 5, timeLeft: -5 },
   },
+  {
+    id: "midnight-rain",
+    title: "窗外暴雨",
+    description: "线路有杂音，客户反复确认你还在，节奏必须更慢。",
+    effects: { timeLeft: -8, satisfaction: 2 },
+  },
+  {
+    id: "midnight-handoff",
+    title: "白班遗留单",
+    description: "白班把未闭环的情绪单甩到你这边，上下文残缺。",
+    effects: { timeLeft: -7, anger: 4, complianceRisk: 3 },
+  },
 ];
 
 const midnightDays: CareerDay[] = [
@@ -577,6 +628,18 @@ const reversalEvents: RandomEvent[] = [
     title: "虚假投诉涌入",
     description: "某客服被竞争对手刷单式投诉，需要人工筛查，工作量骤增。",
     effects: { timeLeft: -8, companyCost: 5 },
+  },
+  {
+    id: "reversal-legal-hold",
+    title: "法务冻结卷宗",
+    description: "法务要求相关工单进入保全，你只能在受限字段里继续审查。",
+    effects: { timeLeft: -9, complianceRisk: 7 },
+  },
+  {
+    id: "reversal-internal-leak",
+    title: "内部聊天截图外泄",
+    description: "审查群里的半句吐槽流出，客户与媒体同时施压。",
+    effects: { anger: 5, complianceRisk: 8, satisfaction: -4 },
   },
 ];
 

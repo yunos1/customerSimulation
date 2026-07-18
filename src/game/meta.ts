@@ -49,6 +49,11 @@ export interface MetaState {
   records: MetaRecords;
   /** 已解锁的回复卡 id。 */
   unlockedCardIds: string[];
+  /**
+   * 最近一次本地变更时间（epoch ms）。用于云同步冲突时偏好「较新」的选择态
+   *（activeModeId / currentDayId）。累计型字段仍按字段级 max/union 合并。
+   */
+  updatedAt?: number;
 }
 
 // 兼容旧调用方和旧测试使用的扁平字段。
@@ -91,7 +96,127 @@ export function defaultMeta(activeModeId: SupportModeId = legacyModeId): MetaSta
       bestReplySeconds: Number.POSITIVE_INFINITY,
     },
     unlockedCardIds: [],
+    // 默认不写 updatedAt，保证 defaultMeta() 可稳定比较；有实质变更时再打戳。
   });
+}
+
+/**
+ * 字段级合并本地与远端进度，避免「remoteRuns > localRuns 整包覆盖」丢档。
+ *
+ * - 累计/最优：max / min（bestReplySeconds 越低越好）
+ * - 集合：成就、解锁卡、每天解锁 id 取并集
+ * - 评级：更好的 grade 胜出
+ * - 选择态（activeMode / currentDay）：updatedAt 较新者优先，否则更「进度深」的一侧
+ * - 解锁卡最后再走 evaluateUnlocks，保证条件推导与单调性
+ */
+export function mergeMetaProgress(local: MetaState, remote: MetaState): MetaStateWithLegacy {
+  const localAt = local.updatedAt ?? 0;
+  const remoteAt = remote.updatedAt ?? 0;
+  const preferRemoteSelection = remoteAt > localAt;
+
+  const records: MetaRecords = {
+    totalRuns: Math.max(local.records.totalRuns, remote.records.totalRuns),
+    totalResolved: Math.max(local.records.totalResolved, remote.records.totalResolved),
+    totalComplaints: Math.max(local.records.totalComplaints, remote.records.totalComplaints),
+    bestSatisfaction: Math.max(local.records.bestSatisfaction, remote.records.bestSatisfaction),
+    bestReplySeconds: Math.min(
+      local.records.bestReplySeconds ?? Number.POSITIVE_INFINITY,
+      remote.records.bestReplySeconds ?? Number.POSITIVE_INFINITY,
+    ),
+  };
+
+  const lifetimeAchievements = Array.from(
+    new Set([...local.lifetimeAchievements, ...remote.lifetimeAchievements]),
+  );
+
+  const modes = supportModeOrder.reduce<Record<SupportModeId, ModeProgress>>(
+    (acc, modeId) => {
+      const a = getModeProgress(local, modeId);
+      const b = getModeProgress(remote, modeId);
+      acc[modeId] = mergeModeProgress(a, b, preferRemoteSelection);
+      return acc;
+    },
+    {} as Record<SupportModeId, ModeProgress>,
+  );
+
+  const activeModeId = preferRemoteSelection
+    ? remote.activeModeId
+    : localAt > remoteAt
+      ? local.activeModeId
+      : pickRicherActiveMode(local, remote);
+
+  const draft: MetaState = {
+    activeModeId,
+    modes,
+    lifetimeAchievements,
+    records,
+    unlockedCardIds: Array.from(new Set([...local.unlockedCardIds, ...remote.unlockedCardIds])),
+    updatedAt: Math.max(localAt, remoteAt, Date.now()),
+  };
+
+  return withLegacyFields({
+    ...draft,
+    unlockedCardIds: evaluateUnlocks(draft),
+  });
+}
+
+function mergeModeProgress(
+  local: ModeProgress,
+  remote: ModeProgress,
+  preferRemoteSelection: boolean,
+): ModeProgress {
+  const unlockedDayIds = Array.from(new Set([...local.unlockedDayIds, ...remote.unlockedDayIds]));
+  const dayIds = new Set([...Object.keys(local.bestGrades), ...Object.keys(remote.bestGrades)]);
+  const bestGrades: Record<string, Grade> = {};
+
+  for (const dayId of dayIds) {
+    const lg = local.bestGrades[dayId];
+    const rg = remote.bestGrades[dayId];
+    if (lg && rg) {
+      bestGrades[dayId] = betterGrade(lg, rg);
+    } else {
+      bestGrades[dayId] = (lg ?? rg)!;
+    }
+  }
+
+  let currentDayId: string;
+  if (preferRemoteSelection) {
+    currentDayId = remote.currentDayId;
+  } else if (local.unlockedDayIds.length !== remote.unlockedDayIds.length) {
+    currentDayId =
+      local.unlockedDayIds.length >= remote.unlockedDayIds.length
+        ? local.currentDayId
+        : remote.currentDayId;
+  } else {
+    currentDayId = local.currentDayId;
+  }
+
+  if (!unlockedDayIds.includes(currentDayId)) {
+    currentDayId = unlockedDayIds[unlockedDayIds.length - 1] ?? local.currentDayId;
+  }
+
+  return { currentDayId, unlockedDayIds, bestGrades };
+}
+
+function betterGrade(a: Grade, b: Grade): Grade {
+  // isPassingGrade(x, y) 意为 x 是否达到门槛 y（x 不差于 y）
+  if (isPassingGrade(a, b) && !isPassingGrade(b, a)) return a;
+  if (isPassingGrade(b, a) && !isPassingGrade(a, b)) return b;
+  return a;
+}
+
+function pickRicherActiveMode(local: MetaState, remote: MetaState): SupportModeId {
+  const localDepth = modeDepth(local);
+  const remoteDepth = modeDepth(remote);
+  if (remoteDepth > localDepth) return remote.activeModeId;
+  return local.activeModeId;
+}
+
+function modeDepth(meta: MetaState): number {
+  return supportModeOrder.reduce(
+    (sum, modeId) => sum + getModeProgress(meta, modeId).unlockedDayIds.length,
+    0,
+  );
 }
 
 export function getModeProgress(meta: MetaState, modeId: SupportModeId): ModeProgress {
@@ -107,6 +232,7 @@ export function selectMode(meta: MetaState, modeId: SupportModeId): MetaStateWit
     ...meta,
     activeModeId: modeId,
     modes: ensureModeProgressMap(meta.modes),
+    updatedAt: Date.now(),
   });
 }
 
@@ -127,6 +253,7 @@ export function selectDay(meta: MetaState, modeId: SupportModeId, dayId: string)
         currentDayId: dayId,
       },
     },
+    updatedAt: Date.now(),
   });
 }
 
@@ -203,6 +330,7 @@ export function recordDayResult(meta: MetaState, result: DayResult): MetaStateWi
   return withLegacyFields({
     ...nextMeta,
     unlockedCardIds: evaluateUnlocks(nextMeta),
+    updatedAt: Date.now(),
   });
 }
 
@@ -310,6 +438,7 @@ function coerceMetaState(data: Record<string, unknown>): MetaStateWithLegacy {
       : base.lifetimeAchievements,
     records: coerceRecords(data.records, base.records),
     unlockedCardIds: isStringArray(data.unlockedCardIds) ? data.unlockedCardIds : base.unlockedCardIds,
+    updatedAt: isFiniteNumber(data.updatedAt) ? data.updatedAt : undefined,
   });
 }
 
@@ -410,6 +539,7 @@ function stripLegacyFields(meta: MetaState): MetaState {
     lifetimeAchievements: meta.lifetimeAchievements,
     records: meta.records,
     unlockedCardIds: meta.unlockedCardIds,
+    updatedAt: meta.updatedAt,
   };
 }
 

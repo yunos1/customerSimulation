@@ -1,6 +1,16 @@
 // Durable Object: 贪吃蛇游戏房间
 // 每个房间最多 50 人，服务端 100ms tick 权威移动
 
+import {
+  findBodyHit as findBodyHitPure,
+  getRoomConfig,
+  normalizeAngle,
+  normalizeRoomId,
+  parseClientMessage,
+  SNAKE_HIT_RADIUS_SQ,
+  type SnakeRoomConfig,
+} from "./snake/protocol";
+
 export interface Env {
   DB: D1Database;
   SESSIONS: KVNamespace;
@@ -12,12 +22,9 @@ export interface Env {
 const MAP_SIZE = 1000;
 const CELL_SIZE = 20;
 const TICK_MS = 200;
-const FOOD_TARGET = 5000;
 const INIT_LENGTH = 5;
 const RESPAWN_MS = 5000;
-const MAX_PLAYERS = 50;
 const SKIN_COUNT = 20;
-const MAX_CONNECTIONS = MAX_PLAYERS * 3;
 const SAVE_INTERVAL_TICKS = 50;
 const FOOD_BUCKET = 25;
 const COLLISION_BUCKET = 2;
@@ -25,8 +32,6 @@ const VIEW_RADIUS = 60;
 const BODY_VIEW_PADDING = 4;
 // 近距离蛇发完整 body，远处蛇只发头（小地图够用），减少序列化开销
 const FULL_BODY_RADIUS = 80; // 世界格数
-// AI bot 常驻数量
-const BOT_TARGET = 10;
 const BOT_NAMES = ["小红","小蓝","老王","阿强","小花","大壮","小鹿","阿宝","老虎","小鱼"];
 const BOT_WANDER_MIN_DIST = 180;
 const BOT_WANDER_REACHED_DIST = 30;
@@ -131,33 +136,68 @@ export class SnakeRoom {
   // Persistent collision grid — rebuilt only on snake death/spawn, incremented on move
   private collisionGrid: Map<string, BodySegmentRef[]> = new Map();
   private collisionGridDirty = true;
+  /** Bound on first WS connect from ?room= */
+  private roomId = "main";
+  private roomConfig: SnakeRoomConfig = getRoomConfig("main");
+  private roomBound = false;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
   }
 
+  private bindRoom(rawRoomId: string | null) {
+    if (this.roomBound) return;
+    this.roomId = normalizeRoomId(rawRoomId);
+    this.roomConfig = getRoomConfig(this.roomId);
+    this.roomBound = true;
+  }
+
+  private maxPlayers() {
+    return this.roomConfig.maxPlayers;
+  }
+
+  private maxConnections() {
+    return this.roomConfig.maxPlayers * 3;
+  }
+
+  private botTarget() {
+    return this.roomConfig.botTarget;
+  }
+
+  private foodTarget() {
+    return this.roomConfig.foodTarget;
+  }
+
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // HTTP status for lobby occupancy (not a WebSocket upgrade).
     if (request.headers.get("Upgrade") !== "websocket") {
+      if (request.method === "GET" && (url.pathname.endsWith("/status") || url.searchParams.get("status") === "1")) {
+        this.bindRoom(url.searchParams.get("room"));
+        return this.roomStatusResponse(this.roomId);
+      }
       return new Response("Expected WebSocket", { status: 426 });
     }
 
-    const url = new URL(request.url);
     const qToken = url.searchParams.get("token");
     const cookieToken = this.getCookieToken(request);
     const payload = qToken ? await this.verifyToken(qToken)
       : cookieToken ? await this.verifyToken(cookieToken)
       : null;
 
+    this.bindRoom(url.searchParams.get("room"));
+    const roomId = this.roomId;
     const id = (payload?.sub as string) ?? `guest_${crypto.randomUUID().slice(0, 8)}`;
     const username = (payload?.username as string) ?? `游客${id.slice(-4)}`;
     const avatarUrl = (payload?.avatar_url as string) ?? null;
 
     const alreadyInRoom = this.game.snakes.has(id);
-    if (!alreadyInRoom && this.humanPlayerCount() >= MAX_PLAYERS) {
+    if (!alreadyInRoom && this.humanPlayerCount() >= this.maxPlayers()) {
       return new Response("Room full", { status: 503 });
     }
-    if (this.clients.size >= MAX_CONNECTIONS) {
+    if (this.clients.size >= this.maxConnections()) {
       return new Response("Room full", { status: 503 });
     }
 
@@ -170,7 +210,14 @@ export class SnakeRoom {
       this.spawnSnake(id, username, avatarUrl, false);
     }
 
-    this.sendToClient(clientId, { type: "init", mapSize: MAP_SIZE, cellSize: CELL_SIZE, tickMs: TICK_MS, playerId: id });
+    this.sendToClient(clientId, {
+      type: "init",
+      mapSize: MAP_SIZE,
+      cellSize: CELL_SIZE,
+      tickMs: TICK_MS,
+      playerId: id,
+      roomId,
+    });
     this.sendGameState(clientId, id);
 
     server.addEventListener("message", (ev) => {
@@ -190,6 +237,25 @@ export class SnakeRoom {
 
     this.startTick();
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private roomStatusResponse(roomId: string): Response {
+    let humans = 0;
+    let bots = 0;
+    for (const snake of this.game.snakes.values()) {
+      if (snake.isBot) bots += 1;
+      else humans += 1;
+    }
+    const maxPlayers = this.maxPlayers();
+    return Response.json({
+      roomId,
+      humans,
+      bots,
+      maxPlayers,
+      open: humans < maxPlayers,
+      botTarget: this.botTarget(),
+      foodTarget: this.foodTarget(),
+    });
   }
 
   // ── 游戏循环 ────────────────────────────────────────────────────────────────
@@ -282,7 +348,7 @@ export class SnakeRoom {
     }
 
     // 补充食物
-    const shortage = FOOD_TARGET - this.game.foods.size;
+    const shortage = this.foodTarget() - this.game.foods.size;
     if (shortage > 0) {
       const batch = Math.min(shortage, 50);
       for (let i = 0; i < batch; i++) this.spawnFood();
@@ -455,7 +521,7 @@ export class SnakeRoom {
     for (const snake of this.game.snakes.values()) {
       if (snake.isBot) botCount++;
     }
-    const need = BOT_TARGET - botCount;
+    const need = this.botTarget() - botCount;
     for (let i = 0; i < need; i++) {
       const idx = rand(BOT_NAMES.length);
       const botId = `bot_${crypto.randomUUID().slice(0, 6)}`;
@@ -496,21 +562,7 @@ export class SnakeRoom {
   }
 
   private findBodyHit(grid: Map<string, BodySegmentRef[]>, ownId: string, x: number, y: number): BodySegmentRef | null {
-    const bx = Math.floor(x / COLLISION_BUCKET);
-    const by = Math.floor(y / COLLISION_BUCKET);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const bucket = grid.get(`${bx + dx},${by + dy}`);
-        if (!bucket) continue;
-        for (const seg of bucket) {
-          if (seg.snakeId === ownId) continue;
-          const sx = seg.x - x;
-          const sy = seg.y - y;
-          if (sx * sx + sy * sy < 0.64) return seg;
-        }
-      }
-    }
-    return null;
+    return findBodyHitPure(grid, ownId, x, y, COLLISION_BUCKET, SNAKE_HIT_RADIUS_SQ);
   }
 
   private botSteer(snake: Snake) {
@@ -710,17 +762,19 @@ export class SnakeRoom {
 
   // ── 消息处理 ────────────────────────────────────────────────────────────────
 
-  private handleMessage(clientId: string, id: string, msg: { type: string; angle?: number; active?: boolean }) {
+  private handleMessage(clientId: string, id: string, raw: unknown) {
     if (this.clients.get(clientId)?.snakeId !== id) return;
     const snake = this.game.snakes.get(id);
     if (!snake || snake.isBot) return;
+    const msg = parseClientMessage(raw);
+    if (!msg) return;
     if (msg.type === "leave") {
       void this.saveScore(snake, { recordSession: true });
       return;
     }
     if (!snake.alive) return;
-    if (msg.type === "steer" && typeof msg.angle === "number") {
-      snake.angle = ((msg.angle % 360) + 360) % 360;
+    if (msg.type === "steer") {
+      snake.angle = normalizeAngle(msg.angle);
     } else if (msg.type === "boost") {
       snake.boostHeld = msg.active === true;
       if (snake.boostHeld && snake.nextBoostBurnAt < Date.now()) {

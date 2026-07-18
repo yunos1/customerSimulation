@@ -4,125 +4,146 @@ import {
   Boxes,
   Briefcase,
   CirclePlay,
+  Download,
   Fish,
   Lock,
-  MessageSquareText,
-  MicVocal,
-  Sparkles,
-  Store,
-  Stethoscope,
   Timer,
+  Trash2,
   Trophy,
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { useCallback, useState } from "react";
 import simulatorBoxHero from "../assets/simulator-box-hero.png";
-import { UserWidget } from "./UserWidget";
+import type { MetaState } from "../game/meta";
+import {
+  getHubCardMeta,
+  getLibraryModules,
+  getPrimarySimulator,
+  type SupportHubStats,
+} from "../platform/registry";
+import type { SimulatorId, SimulatorManifest } from "../platform/types";
 import type { AuthUser } from "../hooks/useAuth";
+import { UserWidget } from "./UserWidget";
 
 interface SimulatorHubProps {
   unlockedDays: number;
   totalDays: number;
   gradedDays: number;
-  onLaunchSupport: () => void;
-  onLaunchInterview: () => void;
-  onLaunchShiftRoster: () => void;
-  onLaunchClinicTriage: () => void;
-  onLaunchSlacker: () => void;
+  onLaunchSimulator: (id: Exclude<SimulatorId, "hub">) => void;
   user: AuthUser | null;
   authLoading: boolean;
   onLogin: () => void;
   onLogout: () => void;
-}
-
-interface SimulatorCard {
-  id: string;
-  title: string;
-  category: string;
-  description: string;
-  status: "live" | "soon";
-  tone: "teal" | "red" | "amber" | "cyan" | "violet";
-  icon: LucideIcon;
-  meta: string[];
+  meta: MetaState;
+  onResetCareer: () => void;
 }
 
 export function SimulatorHub({
   unlockedDays,
   totalDays,
   gradedDays,
-  onLaunchSupport,
-  onLaunchInterview,
-  onLaunchShiftRoster,
-  onLaunchClinicTriage,
-  onLaunchSlacker,
+  onLaunchSimulator,
   user,
   authLoading,
   onLogin,
   onLogout,
+  meta,
+  onResetCareer,
 }: SimulatorHubProps) {
-  const shiftRosterCard: SimulatorCard = {
-    id: "shift-roster",
-    title: "门店排班模拟器",
-    category: "零售运营",
-    description: "按客流、岗位、成本和公平度试算一天班表。",
-    status: "live",
-    tone: "red",
-    icon: Store,
-    meta: ["客流曲线", "岗位覆盖", "方案对比"],
+  const supportStats: SupportHubStats = { unlockedDays, totalDays, gradedDays };
+  const libraryModules = getLibraryModules();
+  const primary = getPrimarySimulator();
+  const liveModuleCount = libraryModules.filter((m) => m.manifest.status === "live").length;
+  const upcomingModuleCount = libraryModules.filter((m) => m.manifest.status === "soon").length;
+  const [busy, setBusy] = useState<"export" | "clear" | null>(null);
+  const [dataMessage, setDataMessage] = useState<string | null>(null);
+
+  const launchPrimary = () => {
+    if (primary) onLaunchSimulator(primary.manifest.id);
   };
 
-  const supportCard: SimulatorCard = {
-    id: "customer-support",
-    title: "亲亲，这边不建议呢",
-    category: "客服模拟器",
-    description: "多路售后会话一起涌入，在满意度、成本、合规之间做取舍。",
-    status: "live",
-    tone: "teal",
-    icon: MessageSquareText,
-    meta: [`${unlockedDays}/${totalDays} 天解锁`, `${gradedDays} 天有评级`, "多会话压力"],
+  const launchSlacker = () => {
+    if (!user) {
+      onLogin();
+      return;
+    }
+    onLaunchSimulator("slacker");
   };
 
-  const interviewCard: SimulatorCard = {
-    id: "interview-coach",
-    title: "面试官游戏",
-    category: "招聘判断",
-    description: "在有限提问里识别候选人信号，做录用、待定或淘汰判断。",
-    status: "live",
-    tone: "violet",
-    icon: MicVocal,
-    meta: ["3 个岗位", "9 位候选人", "延迟反馈"],
-  };
+  const exportProgress = useCallback(async () => {
+    setBusy("export");
+    setDataMessage(null);
+    try {
+      let payload: unknown = {
+        exportedAt: new Date().toISOString(),
+        source: "local",
+        meta,
+      };
 
-  const clinicTriageCard: SimulatorCard = {
-    id: "clinic-triage",
-    title: "诊室分诊模拟器",
-    category: "公共服务",
-    description: "在有限医生、诊室和检查窗口里识别真正高危的患者。",
-    status: "live",
-    tone: "cyan",
-    icon: Stethoscope,
-    meta: ["优先级", "等待恶化", "资源槽位"],
-  };
+      if (user) {
+        const res = await fetch("/api/progress?action=export", { method: "POST" });
+        if (res.ok) {
+          const remote = (await res.json()) as {
+            exportedAt?: string;
+            userId?: string;
+            username?: string;
+            updatedAt?: number | null;
+            meta?: MetaState | null;
+          };
+          payload = {
+            exportedAt: remote.exportedAt ?? new Date().toISOString(),
+            source: "cloud+local",
+            userId: remote.userId,
+            username: remote.username,
+            cloudUpdatedAt: remote.updatedAt ?? null,
+            localMeta: meta,
+            cloudMeta: remote.meta,
+          };
+        }
+      }
 
-  const slackerCard: SimulatorCard = {
-    id: "slacker-moment",
-    title: "摸鱼时刻",
-    category: "在线游戏",
-    description: "1000×1000 超大地图多人贪吃蛇，360°自由移动，边吃边卷。",
-    status: "live",
-    tone: "amber",
-    icon: Fish,
-    meta: ["在线多人", "10 套皮肤", "全球排行榜"],
-  };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `yuanshen-progress-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setDataMessage(user ? "已导出本地 + 云端进度" : "已导出本地进度");
+    } catch {
+      setDataMessage("导出失败，请稍后重试");
+    } finally {
+      setBusy(null);
+    }
+  }, [meta, user]);
 
-  const cards = [
-    supportCard,
-    shiftRosterCard,
-    clinicTriageCard,
-    interviewCard,
-  ];
-  const liveModuleCount = cards.filter((card) => card.status === "live").length;
-  const upcomingModuleCount = cards.filter((card) => card.status === "soon").length;
+  const clearProgress = useCallback(async () => {
+    const ok = window.confirm(
+      user
+        ? "确定清空本地与云端的客服进度吗？排行榜中的你的客服成绩也会删除。此操作不可撤销。"
+        : "确定清空本地客服进度吗？此操作不可撤销。",
+    );
+    if (!ok) return;
+
+    setBusy("clear");
+    setDataMessage(null);
+    try {
+      if (user) {
+        const res = await fetch("/api/progress", { method: "DELETE" });
+        if (!res.ok) {
+          setDataMessage("云端清空失败");
+          return;
+        }
+      }
+      onResetCareer();
+      setDataMessage(user ? "本地与云端进度已清空" : "本地进度已清空");
+    } catch {
+      setDataMessage("清空失败，请稍后重试");
+    } finally {
+      setBusy(null);
+    }
+  }, [onResetCareer, user]);
 
   return (
     <main className="hub-shell">
@@ -144,24 +165,40 @@ export function SimulatorHub({
           </p>
 
           <div className="hub-actions">
-            <button className="hub-primary-action" type="button" onClick={onLaunchSupport}>
+            <button className="hub-primary-action" type="button" onClick={launchPrimary}>
               <CirclePlay size={20} aria-hidden="true" />
               启动客服模拟器
             </button>
             <button
               className="hub-secondary-action hub-slacker-btn"
               type="button"
-              onClick={() => {
-                if (!user) {
-                  onLogin();
-                } else {
-                  onLaunchSlacker();
-                }
-              }}
+              onClick={launchSlacker}
             >
               <Fish size={18} aria-hidden="true" className="hub-fish-icon" />
               摸鱼时刻{!user && !authLoading ? " (需登录)" : ""}
             </button>
+          </div>
+
+          <div className="hub-data-actions" aria-label="进度数据">
+            <button
+              type="button"
+              className="hub-data-btn"
+              onClick={() => void exportProgress()}
+              disabled={busy !== null}
+            >
+              <Download size={15} aria-hidden="true" />
+              {busy === "export" ? "导出中…" : "导出进度"}
+            </button>
+            <button
+              type="button"
+              className="hub-data-btn hub-data-btn-danger"
+              onClick={() => void clearProgress()}
+              disabled={busy !== null}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+              {busy === "clear" ? "清空中…" : "清空进度"}
+            </button>
+            {dataMessage ? <span className="hub-data-msg">{dataMessage}</span> : null}
           </div>
 
           <div className="hub-readouts" aria-label="盒子状态">
@@ -191,23 +228,12 @@ export function SimulatorHub({
         </div>
 
         <div className="simulator-grid">
-          {cards.map((card) => (
+          {libraryModules.map((mod) => (
             <SimulatorModuleCard
-              card={card}
-              key={card.id}
-              onLaunch={
-                card.id === "customer-support"
-                  ? onLaunchSupport
-                  : card.id === "interview-coach"
-                    ? onLaunchInterview
-                    : card.id === "shift-roster"
-                      ? onLaunchShiftRoster
-                      : card.id === "clinic-triage"
-                        ? onLaunchClinicTriage
-                        : card.id === "slacker-moment"
-                          ? onLaunchSlacker
-                          : undefined
-              }
+              key={mod.manifest.id}
+              manifest={mod.manifest}
+              meta={getHubCardMeta(mod.manifest, supportStats)}
+              onLaunch={() => onLaunchSimulator(mod.manifest.id)}
             />
           ))}
         </div>
@@ -217,18 +243,31 @@ export function SimulatorHub({
 }
 
 function SimulatorModuleCard({
-  card,
+  manifest,
+  meta,
   onLaunch,
 }: {
-  card: SimulatorCard;
+  manifest: SimulatorManifest;
+  meta: string[];
   onLaunch?: () => void;
 }) {
-  const Icon = card.icon;
-  const isLive = card.status === "live";
+  const Icon = manifest.icon as LucideIcon;
+  const isLive = manifest.status === "live";
+  // CSS still uses legacy card ids for a few tone/layout hooks.
+  const cssId =
+    manifest.id === "support"
+      ? "customer-support"
+      : manifest.id === "interview"
+        ? "interview-coach"
+        : manifest.id === "shiftRoster"
+          ? "shift-roster"
+          : manifest.id === "clinicTriage"
+            ? "clinic-triage"
+            : manifest.id;
 
   return (
     <article
-      className={`simulator-card simulator-card-${card.status} simulator-card-${card.tone} simulator-card-${card.id}`}
+      className={`simulator-card simulator-card-${manifest.status} simulator-card-${manifest.tone} simulator-card-${cssId}`}
     >
       <div className="simulator-card-topline">
         <span className="simulator-card-icon">
@@ -241,9 +280,9 @@ function SimulatorModuleCard({
       </div>
 
       <div className="simulator-card-copy">
-        <p>{card.category}</p>
-        <h3>{card.title}</h3>
-        <span>{card.description}</span>
+        <p>{manifest.category}</p>
+        <h3>{manifest.title}</h3>
+        <span>{manifest.description}</span>
       </div>
 
       <div className="simulator-module-rail" aria-hidden="true">
@@ -254,7 +293,7 @@ function SimulatorModuleCard({
       </div>
 
       <div className="simulator-meta-row">
-        {card.meta.map((item) => (
+        {meta.map((item) => (
           <span key={item}>{item}</span>
         ))}
       </div>

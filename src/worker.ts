@@ -4,6 +4,7 @@ import {
   requestCustomerReactionWithAssessment,
   requestCustomerReactionWithAssessmentStream,
 } from "./shared/customerReaction";
+import { normalizeRoomId, SNAKE_PUBLIC_ROOMS, type SnakeRoomStatus } from "./snake/protocol";
 export { SnakeRoom } from "./snake-room";
 
 interface Env {
@@ -26,6 +27,33 @@ const LINUXDO_TOKEN_PATH = "/oauth2/token";
 const LINUXDO_USER_PATH = "/api/user";
 const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days
 
+/** In-memory AI rate limit: max N requests per key per window (per isolate). */
+const AI_RATE_LIMIT_MAX = 30;
+const AI_RATE_LIMIT_WINDOW_MS = 60_000;
+const aiRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(request: Request): string {
+  return (
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+    "unknown"
+  );
+}
+
+function takeAiRateToken(key: string): boolean {
+  const now = Date.now();
+  const bucket = aiRateBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    aiRateBuckets.set(key, { count: 1, resetAt: now + AI_RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (bucket.count >= AI_RATE_LIMIT_MAX) {
+    return false;
+  }
+  bucket.count += 1;
+  return true;
+}
+
 function ldUrl(env: Env, path: string) {
   const base = env.LINUXDO_PROXY ?? "https://connect.linux.do";
   return `${base}${path}`;
@@ -44,14 +72,21 @@ export default {
       if (url.pathname === "/api/progress") return handleProgress(request, env);
       if (url.pathname === "/api/leaderboard") return handleLeaderboard(request, env);
       if (url.pathname === "/api/snake/leaderboard") return handleSnakeLeaderboard(request, env);
+      if (url.pathname === "/api/snake/rooms") return handleSnakeRooms(request, env);
       if (url.pathname === "/api/snake/ws") return handleSnakeWs(request, env);
 
       return env.ASSETS.fetch(request);
     } catch (e) {
+      log("worker.error", { message: (e as Error).message });
       return html(`Worker error: ${(e as Error).stack ?? e}`, 500);
     }
   },
 };
+
+/** Structured JSON logs for Workers observability (one line per event). */
+function log(event: string, fields: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...fields }));
+}
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -191,23 +226,33 @@ async function handleCallback(request: Request, env: Env) {
     env.JWT_SECRET
   );
 
+  log("auth.login", { userId });
+
+  const secure = isSecureRequest(request) ? "; Secure" : "";
   const headers = new Headers({
     Location: "/",
-    "Set-Cookie": `session=${jwt}; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL}; Path=/`,
+    "Set-Cookie": `session=${jwt}; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL}; Path=/${secure}`,
   });
   // clear state cookie
-  headers.append("Set-Cookie", "oauth_state=; HttpOnly; Max-Age=0; Path=/");
+  headers.append("Set-Cookie", `oauth_state=; HttpOnly; Max-Age=0; Path=/${secure}`);
   return new Response(null, { status: 302, headers });
 }
 
-function handleLogout(_request: Request, _env?: Env) {
+function handleLogout(request: Request, _env?: Env) {
+  log("auth.logout", {});
+  const secure = isSecureRequest(request) ? "; Secure" : "";
   return new Response(null, {
     status: 302,
     headers: {
       Location: "/",
-      "Set-Cookie": "session=; HttpOnly; Max-Age=0; Path=/",
+      "Set-Cookie": `session=; HttpOnly; Max-Age=0; Path=/${secure}`,
     },
   });
+}
+
+/** Production (HTTPS) cookies should include Secure; local http://127.0.0.1 stays without it. */
+function isSecureRequest(request: Request): boolean {
+  return new URL(request.url).protocol === "https:";
 }
 
 // ── User API ──────────────────────────────────────────────────────────────────
@@ -224,9 +269,13 @@ async function handleProgress(request: Request, env: Env) {
   const userId = session.sub as string;
 
   if (request.method === "GET") {
-    const row = await env.DB.prepare("SELECT meta_json FROM user_progress WHERE user_id = ?")
-      .bind(userId).first<{ meta_json: string }>();
-    return json({ meta: row ? JSON.parse(row.meta_json) : null });
+    const row = await env.DB.prepare("SELECT meta_json, updated_at FROM user_progress WHERE user_id = ?")
+      .bind(userId).first<{ meta_json: string; updated_at: number }>();
+    log("progress.get", { userId, hasMeta: Boolean(row) });
+    return json({
+      meta: row ? JSON.parse(row.meta_json) : null,
+      updatedAt: row?.updated_at ?? null,
+    });
   }
 
   if (request.method === "PUT") {
@@ -250,6 +299,33 @@ async function handleProgress(request: Request, env: Env) {
          total_runs=excluded.total_runs, best_satisfaction=excluded.best_satisfaction, updated_at=excluded.updated_at`
     ).bind(userId, username, avatarUrl, records.totalRuns ?? 0, records.bestSatisfaction ?? 0, now).run();
 
+    log("progress.put", {
+      userId,
+      totalRuns: records.totalRuns ?? 0,
+      bytes: body.length,
+    });
+    return json({ ok: true, updatedAt: now });
+  }
+
+  // Export full progress payload (download-friendly).
+  if (request.method === "POST" && new URL(request.url).searchParams.get("action") === "export") {
+    const row = await env.DB.prepare("SELECT meta_json, updated_at FROM user_progress WHERE user_id = ?")
+      .bind(userId).first<{ meta_json: string; updated_at: number }>();
+    log("progress.export", { userId, hasMeta: Boolean(row) });
+    return json({
+      exportedAt: new Date().toISOString(),
+      userId,
+      username: session.username,
+      updatedAt: row?.updated_at ?? null,
+      meta: row ? JSON.parse(row.meta_json) : null,
+    });
+  }
+
+  // Clear cloud progress (and leaderboard row). Local client should reset separately.
+  if (request.method === "DELETE") {
+    await env.DB.prepare("DELETE FROM user_progress WHERE user_id = ?").bind(userId).run();
+    await env.DB.prepare("DELETE FROM leaderboard WHERE user_id = ?").bind(userId).run();
+    log("progress.delete", { userId });
     return json({ ok: true });
   }
 
@@ -268,6 +344,13 @@ async function handleLeaderboard(_request: Request, env: Env) {
 async function handleCustomerReaction(request: Request, env: Env) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!env.AI_KEY) return json({ error: "AI customer reply is not configured" }, 503);
+
+  const session = await getSession(request, env);
+  const rateKey = session?.sub ? `user:${session.sub}` : `ip:${clientIp(request)}`;
+  if (!takeAiRateToken(String(rateKey))) {
+    log("ai.rate_limited", { rateKey });
+    return json({ error: "Too many AI requests, try again shortly" }, 429);
+  }
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > maxBodyBytes) return json({ error: "Request body too large" }, 413);
@@ -294,7 +377,7 @@ async function handleCustomerReaction(request: Request, env: Env) {
     const line = await requestCustomerReaction(bodyForAi, aiConfig);
     return json({ line });
   } catch (error) {
-    console.warn("[customer-reaction-api]", error);
+    log("ai.error", { message: (error as Error).message, mode: "json" });
     return json({ error: "AI customer reply failed", detail: (error as Error).message }, 502);
   }
 }
@@ -321,6 +404,7 @@ function streamCustomerReaction(
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (error) {
         console.warn("[customer-reaction-api stream]", error);
+        log("ai.error", { message: (error as Error).message, mode: "stream" });
         // 让客户端走静态回退：直接结束流（无 token），不抛出 500。
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } finally {
@@ -347,13 +431,54 @@ async function handleSnakeLeaderboard(_request: Request, env: Env) {
   return json({ leaderboard: rows.results });
 }
 
+/** Lobby: occupancy for public rooms (and optional ?room= for a custom id). */
+async function handleSnakeRooms(request: Request, env: Env) {
+  if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  const url = new URL(request.url);
+  const custom = url.searchParams.get("room");
+  const ids = custom
+    ? [normalizeRoomId(custom)]
+    : SNAKE_PUBLIC_ROOMS.map((r) => r.id);
+
+  const rooms: SnakeRoomStatus[] = await Promise.all(
+    ids.map(async (roomId) => {
+      try {
+        const stub = env.SNAKE_ROOM.get(env.SNAKE_ROOM.idFromName(roomId));
+        const res = await stub.fetch(
+          new Request(`https://snake.internal/status?room=${encodeURIComponent(roomId)}&status=1`),
+        );
+        if (!res.ok) {
+          return { roomId, humans: 0, bots: 0, maxPlayers: 50, open: true };
+        }
+        return (await res.json()) as SnakeRoomStatus;
+      } catch {
+        return { roomId, humans: 0, bots: 0, maxPlayers: 50, open: true };
+      }
+    }),
+  );
+
+  return json({
+    rooms: rooms.map((status) => {
+      const meta = SNAKE_PUBLIC_ROOMS.find((r) => r.id === status.roomId);
+      return {
+        ...status,
+        title: meta?.title ?? status.roomId,
+        blurb: meta?.blurb ?? "自定义房间",
+      };
+    }),
+  });
+}
+
 async function handleSnakeWs(request: Request, env: Env) {
-  const id = env.SNAKE_ROOM.idFromName("main");
+  const url = new URL(request.url);
+  const roomId = normalizeRoomId(url.searchParams.get("room"));
+  url.searchParams.set("room", roomId);
+
+  const id = env.SNAKE_ROOM.idFromName(roomId);
   const room = env.SNAKE_ROOM.get(id);
   // session cookie 是 HttpOnly，前端 JS 读不到，无法放进 WS URL。
   // 在 Worker 侧从握手请求的 cookie 取出 JWT，显式作为 ?token= 传给 DO，
   // 保证已登录用户被正确识别（不再回退为游客）。
-  const url = new URL(request.url);
   if (!url.searchParams.get("token")) {
     const cookieToken = getCookie(request, "session");
     if (cookieToken) {
@@ -361,7 +486,7 @@ async function handleSnakeWs(request: Request, env: Env) {
       return room.fetch(new Request(url.toString(), request));
     }
   }
-  return room.fetch(request);
+  return room.fetch(new Request(url.toString(), request));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

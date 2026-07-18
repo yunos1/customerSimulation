@@ -1,14 +1,9 @@
-const faviconBySimulator: Record<string, string> = {
-  hub: "favicons/hub.ico",
-  support: "favicons/customer-support.ico",
-  interview: "favicons/interview-coach.ico",
-  shiftRoster: "favicons/shift-roster.ico",
-  clinicTriage: "favicons/clinic-triage.ico",
-  slacker: "favicons/hub.ico",
-};
+import { getManifestFavicon } from "../platform/registry";
+import type { SimulatorId } from "../platform/types";
 
 export function setSimulatorFavicon(simulatorId: string) {
-  const href = `${import.meta.env.BASE_URL}${faviconBySimulator[simulatorId]}`;
+  const relative = getManifestFavicon(simulatorId as SimulatorId);
+  const href = `${import.meta.env.BASE_URL}${relative}`;
   let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
 
   if (!link) {

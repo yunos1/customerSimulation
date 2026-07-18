@@ -5,6 +5,7 @@ import {
   getModeProgress,
   loadMeta,
   migrate,
+  mergeMetaProgress,
   recordDayResult,
   saveMeta,
 } from "./meta";
@@ -307,6 +308,71 @@ describe("evaluateUnlocks", () => {
     );
 
     expect(meta.unlockedCardIds).toContain(resolveCard.card.id);
+  });
+});
+
+describe("mergeMetaProgress", () => {
+  it("字段级取 max / 并集：两边进度都不丢", () => {
+    let local = recordDayResult(defaultMeta(), makeResult({ dayId: day1, grade: "A", resolvedCount: 5 }));
+    local = { ...local, updatedAt: 1000 };
+
+    let remote = recordDayResult(
+      defaultMeta(),
+      makeResult({ modeId: "comedy", dayId: comedyDay1, grade: "B", resolvedCount: 3 }),
+    );
+    remote = { ...remote, updatedAt: 500 };
+
+    const merged = mergeMetaProgress(local, remote);
+
+    expect(merged.records.totalResolved).toBe(Math.max(local.records.totalResolved, remote.records.totalResolved));
+    expect(merged.records.totalRuns).toBe(Math.max(local.records.totalRuns, remote.records.totalRuns));
+    expect(getModeProgress(merged, "workplace").bestGrades[day1]).toBe("A");
+    expect(getModeProgress(merged, "comedy").unlockedDayIds).toContain(comedyDay2);
+    expect(getModeProgress(merged, "workplace").unlockedDayIds).toContain(day2);
+  });
+
+  it("bestGrades 取更好的评级", () => {
+    const local = {
+      ...defaultMeta(),
+      modes: {
+        ...defaultMeta().modes,
+        workplace: {
+          currentDayId: day1,
+          unlockedDayIds: [day1],
+          bestGrades: { [day1]: "C" as const },
+        },
+      },
+      updatedAt: 1,
+    };
+    const remote = {
+      ...defaultMeta(),
+      modes: {
+        ...defaultMeta().modes,
+        workplace: {
+          currentDayId: day1,
+          unlockedDayIds: [day1],
+          bestGrades: { [day1]: "S" as const },
+        },
+      },
+      updatedAt: 2,
+    };
+
+    expect(mergeMetaProgress(local, remote).bestGrades[day1]).toBe("S");
+  });
+
+  it("选择态偏好 updatedAt 较新的一侧", () => {
+    const local = {
+      ...defaultMeta(),
+      activeModeId: "workplace" as const,
+      updatedAt: 10,
+    };
+    const remote = {
+      ...defaultMeta(),
+      activeModeId: "comedy" as const,
+      updatedAt: 100,
+    };
+
+    expect(mergeMetaProgress(local, remote).activeModeId).toBe("comedy");
   });
 });
 

@@ -9,16 +9,17 @@ import { useSnakeGame } from "./useSnakeGame";
 
 interface Props {
   token: string | null;
+  roomId?: string;
   onBackToHub: () => void;
 }
 
-export function SnakeGame({ token, onBackToHub }: Props) {
+export function SnakeGame({ token, roomId = "main", onBackToHub }: Props) {
   const rendererSteerRef = useRef<((angle: number) => void) | null>(null);
   const [rendererFlags, setRendererFlags] = useState<SnakeRendererFlags>({});
   const {
     hudSnapshot, tickMsRef, subscribeSnapshot,
     connected, mapSize, playerId, steer, setBoosting, leave,
-  } = useSnakeGame(token);
+  } = useSnakeGame(token, roomId);
 
   const handleSteer = useCallback(
     (angle: number) => {

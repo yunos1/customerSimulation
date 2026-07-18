@@ -8,8 +8,10 @@ import {
   saveMeta,
   STORAGE_KEY,
   migrate,
+  mergeMetaProgress,
+  type MetaState,
 } from "../game/meta";
-import type { DayResult, MetaState } from "../game/meta";
+import type { DayResult } from "../game/meta";
 import type { SupportModeId } from "../content/career";
 
 export interface UseMetaProgress {
@@ -41,7 +43,7 @@ export function useMetaProgress(): UseMetaProgress {
       if (e.key !== STORAGE_KEY || e.newValue == null) return;
       try {
         const incoming = migrate(JSON.parse(e.newValue));
-        setMeta(incoming);
+        setMeta((prev) => mergeMetaProgress(prev, incoming));
       } catch {
         // 解析失败：忽略，保持当前 meta 不变
       }
@@ -62,8 +64,12 @@ export function useMetaProgress(): UseMetaProgress {
     setMeta((prev) => mergeDayResult(prev, result));
   }, []);
 
+  /** 与远端字段级合并，而不是整包覆盖。 */
   const applyRemoteMeta = useCallback((remote: unknown) => {
-    setMeta(migrate({ version: 2, data: remote }));
+    setMeta((prev) => {
+      const remoteMeta = migrate({ version: 2, data: remote });
+      return mergeMetaProgress(prev, remoteMeta);
+    });
   }, []);
 
   const resetCareer = useCallback(() => {

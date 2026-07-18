@@ -1,28 +1,22 @@
 // WebSocket 连接 + 游戏状态管理
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import {
+  SNAKE_MAP_SIZE,
+  SNAKE_TICK_MS,
+  type FoodInfoWire,
+  type LeaderEntryWire,
+  type SnakeEffectsWire,
+  type SnakeInfoWire,
+  type SnakeVec2,
+} from "../../snake/protocol";
 
-export interface Vec2 { x: number; y: number }
+export type Vec2 = SnakeVec2;
 // 生效中的 buff -> 到期时间戳（服务端 Date.now() 基准）。仅含尚未到期的。
-export interface SnakeEffects {
-  boost?: number; slow?: number; shield?: number;
-  magnet?: number; double?: number; ghost?: number; activeBoost?: number;
-}
-export interface SnakeInfo {
-  id: string; username: string; avatarUrl: string | null;
-  skinId: number; body: Vec2[]; angle: number;
-  alive: boolean; score: number; kills: number; respawnAt: number; bodyLength?: number;
-  // 远处蛇为节省带宽只发蛇头：bodyHead=true 表示 body 仅含头部一节
-  bodyHead?: boolean;
-  // bodyPartial=true 表示服务端已按当前视野裁剪 body，仅含附近片段。
-  bodyPartial?: boolean;
-  // 裁剪 body 中每一节对应完整蛇身的原始索引，用于插值和断开不连续片段。
-  bodyIndexes?: number[];
-  effects?: SnakeEffects;
-  isBot?: boolean;
-}
+export type SnakeEffects = SnakeEffectsWire;
+export type SnakeInfo = SnakeInfoWire;
 // skill: 技能类型标识（见 skins.ts SKILL_FOODS）；普通食物无此字段
-export interface FoodInfo { x: number; y: number; type: number; value: number; tier: number; skill?: string }
-export interface LeaderEntry { id: string; username: string; score: number; kills: number; isBot?: boolean }
+export type FoodInfo = FoodInfoWire;
+export type LeaderEntry = LeaderEntryWire;
 
 export interface GameSnapshot {
   tick: number;
@@ -94,25 +88,30 @@ function toHudSnapshot(snapshot: GameSnapshot, fallbackPlayerId: string): GameHu
   };
 }
 
-export function useSnakeGame(token: string | null) {
+export function useSnakeGame(token: string | null, roomId = "main") {
   // bufferRef：最近若干帧快照（按到达顺序，末尾最新），供 GameCanvas 渲染回放。
   // 直接读 ref，不触发 React 重渲染。
   const bufferRef = useRef<GameSnapshot[]>([]);
-  const tickMsRef = useRef<number>(200);
+  const tickMsRef = useRef<number>(SNAKE_TICK_MS);
   const lastArriveRef = useRef<number>(0);
   const timelineRef = useRef<{ tick: number; time: number } | null>(null);
   const lastHudUpdateRef = useRef<number>(0);
   const [hudSnapshot, setHudSnapshot] = useState<GameHudSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
-  const [mapSize, setMapSize] = useState(1000);
+  const [mapSize, setMapSize] = useState(SNAKE_MAP_SIZE);
   const [playerId, setPlayerId] = useState("");
+  const [activeRoomId, setActiveRoomId] = useState(roomId);
   const wsRef = useRef<WebSocket | null>(null);
   const playerIdRef = useRef<string>("");
   const listenersRef = useRef(new Set<SnapshotListener>());
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${location.host}/api/snake/ws${token ? `?token=${token}` : ""}`;
+    // Prefer cookie session (HttpOnly, auto-sent on same-origin WS). Optional token for non-cookie clients.
+    const params = new URLSearchParams();
+    params.set("room", roomId);
+    if (token) params.set("token", token);
+    const url = `${proto}//${location.host}/api/snake/ws?${params.toString()}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -124,6 +123,7 @@ export function useSnakeGame(token: string | null) {
         playerIdRef.current = msg.playerId;
         setPlayerId(msg.playerId);
         setMapSize(msg.mapSize);
+        if (typeof msg.roomId === "string") setActiveRoomId(msg.roomId);
         if (typeof msg.tickMs === "number") tickMsRef.current = msg.tickMs;
       } else if (msg.type === "state") {
         const now = performance.now();
@@ -135,7 +135,7 @@ export function useSnakeGame(token: string | null) {
           playerIdRef.current = snap.playerId;
           setPlayerId(snap.playerId);
         }
-        const tickMs = tickMsRef.current || 200;
+        const tickMs = tickMsRef.current || SNAKE_TICK_MS;
         const timeline = timelineRef.current;
         let arrivedAt = now;
         if (timeline && snap.tick > timeline.tick) {
@@ -161,7 +161,7 @@ export function useSnakeGame(token: string | null) {
     };
 
     return () => ws.close();
-  }, [token]);
+  }, [token, roomId]);
 
   const steer = useCallback((angle: number) => {
     wsRef.current?.send(JSON.stringify({ type: "steer", angle }));
@@ -184,6 +184,6 @@ export function useSnakeGame(token: string | null) {
 
   return {
     hudSnapshot, bufferRef, tickMsRef, subscribeSnapshot,
-    connected, mapSize, playerId, steer, setBoosting, leave,
+    connected, mapSize, playerId, roomId: activeRoomId, steer, setBoosting, leave,
   };
 }
